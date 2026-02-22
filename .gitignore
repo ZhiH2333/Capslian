@@ -1,0 +1,48 @@
+# Flutter/Dart
+.dart_tool/
+.pub/
+pubspec.lock
+build/
+.metadata
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Android
+android/app/debug/
+android/app/profile/
+android/app/release/
+android/.gradle/
+
+# iOS
+ios/Pods/
+ios/.symlinks/
+ios/Runner/GeneratedPluginRegistrant.m
+ios/Flutter/ephemeral/
+
+# macOS
+macos/Pods/
+macos/.symlinks/
+macos/Flutter/GeneratedPluginRegistrant.swift
+macos/Flutter/ephemeral/
+
+# Linux
+linux/.symlinks/
+linux/flutter/ephemeral/
+
+# Windows
+windows/.symlinks/
+windows/flutter/ephemeral/
+
+# Web
+web/flutter_service_worker.js
+web/version.json
+
+# Test
+coverage/
