@@ -10,7 +10,8 @@
     "db:migrate:remote": "wrangler d1 migrations apply capslian-db --remote"
   },
   "devDependencies": {
-    "wrangler": "^3.99.0",
-    "typescript": "^5.0.0"
+    "@cloudflare/workers-types": "^4.20260228.0",
+    "typescript": "^5.0.0",
+    "wrangler": "^3.99.0"
   }
 }

@@ -27,8 +27,8 @@ export async function hashPassword(password: string, saltBase64?: string): Promi
     KEY_LEN * 8
   );
   const hashHex = bufferToHex(bits);
-  const saltBase64Out = btoa(String.fromCharCode(...salt));
-  return { hashHex, saltBase64Out: saltBase64Out };
+  const saltStr = btoa(String.fromCharCode(...salt));
+  return { hashHex, saltBase64: saltStr };
 }
 
 export async function verifyPassword(password: string, saltBase64: string, hashHex: string): Promise<boolean> {

@@ -16,7 +16,7 @@ class PostsRepository {
   final Dio _dio;
 
   Future<PostsPageResult> fetchPosts({int limit = 20, String? cursor}) async {
-    final query = <String, dynamic>{'limit': limit};
+    final query = <String, String>{'limit': limit.toString()};
     if (cursor != null && cursor.isNotEmpty) query['cursor'] = cursor;
     final uri = Uri.parse(ApiConstants.posts).replace(queryParameters: query);
     final response = await _dio.get<Map<String, dynamic>>(uri.toString());

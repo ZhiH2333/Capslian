@@ -7,17 +7,18 @@ compatibility_date = "2024-12-01"
 workers_dev = true
 
 [vars]
-JWT_SECRET = "dev-secret-change-in-production"
+JWT_SECRET = "0123456789abcdef0123456789abcdef"
 
 [[d1_databases]]
-binding = "DB"
+binding = "capslian_db"
 database_name = "capslian-db"
-database_id = "00000000-0000-0000-0000-000000000001"
+database_id = "6265dde6-45ad-460d-bd7d-314f4e8abb56"
 migrations_dir = "migrations"
 
-[[r2_buckets]]
-binding = "ASSETS"
-bucket_name = "capslian-assets"
+# R2 is not enable
+# [[r2_buckets]]
+# binding = "ASSETS"
+# bucket_name = "capslian-assets"
 
 [durable_objects]
 bindings = [
