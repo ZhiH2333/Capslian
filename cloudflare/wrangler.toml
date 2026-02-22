@@ -1,0 +1,29 @@
+# Capslian API Worker
+# 部署前请执行: wrangler d1 create capslian-db 并替换下方 database_id
+# R2: wrangler r2 bucket create capslian-assets
+name = "capslian-api"
+main = "src/index.ts"
+compatibility_date = "2024-12-01"
+workers_dev = true
+
+[vars]
+JWT_SECRET = "dev-secret-change-in-production"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "capslian-db"
+database_id = "00000000-0000-0000-0000-000000000001"
+migrations_dir = "migrations"
+
+[[r2_buckets]]
+binding = "ASSETS"
+bucket_name = "capslian-assets"
+
+[durable_objects]
+bindings = [
+  { name = "CHAT", class_name = "ChatRoom", script_name = "capslian-api" }
+]
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["ChatRoom"]

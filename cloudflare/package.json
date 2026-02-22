@@ -1,0 +1,16 @@
+{
+  "name": "capslian-api",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "db:create": "wrangler d1 create capslian-db",
+    "db:migrate:local": "wrangler d1 migrations apply capslian-db --local",
+    "db:migrate:remote": "wrangler d1 migrations apply capslian-db --remote"
+  },
+  "devDependencies": {
+    "wrangler": "^3.99.0",
+    "typescript": "^5.0.0"
+  }
+}
