@@ -51,6 +51,11 @@ class PostsRepository {
     }
   }
 
+  /// 删除帖子，仅发布者有权删除。
+  Future<void> deletePost(String id) async {
+    await _dio.delete<Map<String, dynamic>>('${ApiConstants.posts}/$id');
+  }
+
   /// 上传单张图片，返回可访问的 URL。
   Future<String> uploadImage(String path, {required String mimeType}) async {
     final formData = FormData.fromMap({

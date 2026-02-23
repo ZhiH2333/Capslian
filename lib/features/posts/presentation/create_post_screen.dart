@@ -16,6 +16,8 @@ class CreatePostScreen extends ConsumerStatefulWidget {
 
 class _CreatePostScreenState extends ConsumerState<CreatePostScreen> {
   final _formKey = GlobalKey<FormState>();
+  final _titleController = TextEditingController();
+  final _descriptionController = TextEditingController();
   final _contentController = TextEditingController();
   final List<String> _imageUrls = [];
   bool _isLoading = false;
@@ -23,6 +25,8 @@ class _CreatePostScreenState extends ConsumerState<CreatePostScreen> {
 
   @override
   void dispose() {
+    _titleController.dispose();
+    _descriptionController.dispose();
     _contentController.dispose();
     super.dispose();
   }
@@ -48,9 +52,13 @@ class _CreatePostScreenState extends ConsumerState<CreatePostScreen> {
       _error = null;
     });
     try {
+      final title = _titleController.text.trim();
+      final description = _descriptionController.text.trim();
+      final body = _contentController.text.trim();
+      final content = [title, description, body].join('\n');
       final repo = ref.read(postsRepositoryProvider);
       await repo.createPost(
-        content: _contentController.text.trim(),
+        content: content,
         imageUrls: _imageUrls.isEmpty ? null : _imageUrls,
       );
       ref.invalidate(postsListProvider(const PostsListKey()));
@@ -73,6 +81,30 @@ class _CreatePostScreenState extends ConsumerState<CreatePostScreen> {
           padding: const EdgeInsets.all(24),
           children: <Widget>[
             TextFormField(
+              controller: _titleController,
+              decoration: const InputDecoration(
+                labelText: '标题',
+                border: OutlineInputBorder(),
+                hintText: '选填',
+                alignLabelWithHint: true,
+              ),
+              maxLines: 1,
+              enabled: !_isLoading,
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: _descriptionController,
+              decoration: const InputDecoration(
+                labelText: '描述',
+                border: OutlineInputBorder(),
+                hintText: '选填',
+                alignLabelWithHint: true,
+              ),
+              maxLines: 2,
+              enabled: !_isLoading,
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
               controller: _contentController,
               decoration: const InputDecoration(
                 labelText: '内容',
@@ -83,7 +115,10 @@ class _CreatePostScreenState extends ConsumerState<CreatePostScreen> {
               maxLines: 5,
               enabled: !_isLoading,
               validator: (String? v) {
-                if ((v ?? '').trim().isEmpty) return '请输入内容';
+                final title = _titleController.text.trim();
+                final description = _descriptionController.text.trim();
+                final content = (v ?? '').trim();
+                if (title.isEmpty && description.isEmpty && content.isEmpty) return '请至少填写标题、描述或内容之一';
                 return null;
               },
             ),

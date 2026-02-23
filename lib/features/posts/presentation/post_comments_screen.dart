@@ -99,7 +99,7 @@ class _PostCommentsScreenState extends ConsumerState<PostCommentsScreen> {
                         itemBuilder: (_, int i) {
                           final c = _comments[i];
                           final user = c['user'] is Map ? c['user'] as Map<String, dynamic> : null;
-                          final name = user?['display_name'] ?? user?['username'] ?? '?';
+                          final name = user?['display_name'] ?? user?['username'] ?? c['display_name']?.toString() ?? c['username']?.toString() ?? '?';
                           return ListTile(
                             title: Text(name),
                             subtitle: Text(c['content']?.toString() ?? ''),

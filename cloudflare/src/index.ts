@@ -233,26 +233,39 @@ export default {
     }
 
     const postIdMatch = url.pathname.match(/^\/posts\/([^/]+)$/);
-    if (postIdMatch && request.method === "GET") {
+    if (postIdMatch) {
       const id = postIdMatch[1];
-      const row = await env.capslian_db.prepare(
-        "SELECT p.id, p.user_id, p.content, p.image_urls, p.created_at, p.updated_at, u.username, u.display_name, u.avatar_url FROM posts p JOIN users u ON p.user_id = u.id WHERE p.id = ?"
-      )
-        .bind(id)
-        .first();
-      if (!row || typeof row !== "object") return jsonResponse({ error: "帖子不存在" }, 404);
-      const r = row as Record<string, unknown>;
-      return jsonResponse({
-        post: {
-          id: r.id,
-          user_id: r.user_id,
-          content: r.content,
-          image_urls: r.image_urls,
-          created_at: r.created_at,
-          updated_at: r.updated_at,
-          user: { username: r.username, display_name: r.display_name, avatar_url: r.avatar_url },
-        },
-      });
+      if (request.method === "GET") {
+        const row = await env.capslian_db.prepare(
+          "SELECT p.id, p.user_id, p.content, p.image_urls, p.created_at, p.updated_at, u.username, u.display_name, u.avatar_url FROM posts p JOIN users u ON p.user_id = u.id WHERE p.id = ?"
+        )
+          .bind(id)
+          .first();
+        if (!row || typeof row !== "object") return jsonResponse({ error: "帖子不存在" }, 404);
+        const r = row as Record<string, unknown>;
+        return jsonResponse({
+          post: {
+            id: r.id,
+            user_id: r.user_id,
+            content: r.content,
+            image_urls: r.image_urls,
+            created_at: r.created_at,
+            updated_at: r.updated_at,
+            user: { username: r.username, display_name: r.display_name, avatar_url: r.avatar_url },
+          },
+        });
+      }
+      if (request.method === "DELETE") {
+        const userId = await getUserIdFromRequest(request, secret);
+        if (!userId) return jsonResponse({ error: "未登录" }, 401);
+        const row = await env.capslian_db.prepare("SELECT user_id FROM posts WHERE id = ?").bind(id).first() as { user_id: string } | null;
+        if (!row) return jsonResponse({ error: "帖子不存在" }, 404);
+        if (row.user_id !== userId) return jsonResponse({ error: "只能删除自己的帖子" }, 403);
+        await env.capslian_db.prepare("DELETE FROM post_likes WHERE post_id = ?").bind(id).run();
+        await env.capslian_db.prepare("DELETE FROM comments WHERE post_id = ?").bind(id).run();
+        await env.capslian_db.prepare("DELETE FROM posts WHERE id = ?").bind(id).run();
+        return jsonResponse({ deleted: true });
+      }
     }
 
     if (url.pathname === "/upload" && request.method === "POST") {
@@ -332,8 +345,22 @@ export default {
           "SELECT c.id, c.post_id, c.user_id, c.content, c.created_at, u.username, u.display_name, u.avatar_url FROM comments c JOIN users u ON c.user_id = u.id WHERE c.id = ?"
         )
           .bind(id)
-          .first();
-        return jsonResponse({ comment: row });
+          .first() as Record<string, unknown> | null;
+        const comment = row
+          ? {
+              id: row.id,
+              post_id: row.post_id,
+              user_id: row.user_id,
+              content: row.content,
+              created_at: row.created_at,
+              user: {
+                username: row.username,
+                display_name: row.display_name,
+                avatar_url: row.avatar_url,
+              },
+            }
+          : null;
+        return jsonResponse({ comment });
       }
     }
 
