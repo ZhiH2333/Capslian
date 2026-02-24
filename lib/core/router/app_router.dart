@@ -74,7 +74,8 @@ GoRouter createAppRouter() {
         path: '${AppRoutes.direct}/:userId',
         builder: (BuildContext context, GoRouterState state) {
           final userId = state.pathParameters['userId'] ?? '';
-          return ChatScreen(peerUserId: userId);
+          final peerDisplayName = state.uri.queryParameters['peerName'];
+          return ChatScreen(peerUserId: userId, peerDisplayName: peerDisplayName);
         },
       ),
       GoRoute(

@@ -577,15 +577,58 @@ export default {
       const withLast = await Promise.all(
         (convList as { peer_id: string }[]).map(async (row) => {
           const peerId = row.peer_id;
-          const last = await env.capslian_db.prepare(
-            "SELECT content, created_at FROM messages WHERE (sender_id = ? AND receiver_id = ?) OR (sender_id = ? AND receiver_id = ?) ORDER BY created_at DESC LIMIT 1"
-          )
-            .bind(userId, peerId, peerId, userId)
-            .first();
-          return { peer_id: peerId, last_content: (last as Record<string, unknown>)?.content, last_at: (last as Record<string, unknown>)?.created_at };
+          const [last, unread, peerRow] = await Promise.all([
+            env.capslian_db.prepare(
+              "SELECT content, created_at FROM messages WHERE (sender_id = ? AND receiver_id = ?) OR (sender_id = ? AND receiver_id = ?) ORDER BY created_at DESC LIMIT 1"
+            )
+              .bind(userId, peerId, peerId, userId)
+              .first(),
+            env.capslian_db.prepare(
+              "SELECT COUNT(*) as c FROM messages WHERE receiver_id = ? AND sender_id = ? AND read = 0"
+            )
+              .bind(userId, peerId)
+              .first(),
+            env.capslian_db.prepare("SELECT username, display_name FROM users WHERE id = ?")
+              .bind(peerId)
+              .first(),
+          ]);
+          const unreadCount = (unread as { c: number })?.c ?? 0;
+          const peer = peerRow as { username?: string; display_name?: string } | null;
+          return {
+            peer_id: peerId,
+            peer_username: peer?.username ?? null,
+            peer_display_name: peer?.display_name ?? null,
+            last_content: (last as Record<string, unknown>)?.content,
+            last_at: (last as Record<string, unknown>)?.created_at,
+            unread_count: unreadCount,
+          };
         })
       );
       return jsonResponse({ conversations: withLast });
+    }
+
+    if (pathname === "/messages/mark-read" && request.method === "POST") {
+      const userId = await getUserIdFromRequest(request, secret);
+      if (!userId) return jsonResponse({ error: "未登录" }, 401);
+      let body: { with_user?: string };
+      try {
+        body = (await request.json()) as { with_user?: string };
+      } catch {
+        return jsonResponse({ error: "请求体无效" }, 400);
+      }
+      const withUser = String(body?.with_user ?? "").trim();
+      if (!withUser) return jsonResponse({ error: "with_user 必填" }, 400);
+      try {
+        await env.capslian_db.prepare(
+          "UPDATE messages SET read = 1 WHERE receiver_id = ? AND sender_id = ? AND read = 0"
+        )
+          .bind(userId, withUser)
+          .run();
+        return jsonResponse({ marked: true });
+      } catch (e) {
+        console.error("messages/mark-read error:", e);
+        return jsonResponse({ error: "操作失败" }, 500);
+      }
     }
 
     if (pathname === "/messages" && request.method === "POST") {

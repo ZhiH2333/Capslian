@@ -36,7 +36,14 @@ class _MainShellScreenState extends ConsumerState<MainShellScreen> {
             children: <Widget>[
               const HomeScreen(inShell: true),
               ChatTabScreen(
-                onOpenChat: (String peerId) => context.push('${AppRoutes.direct}/$peerId'),
+                onOpenChat: (String peerId, [String? peerDisplayName]) {
+                  final path = '${AppRoutes.direct}/$peerId';
+                  if (peerDisplayName != null && peerDisplayName.isNotEmpty) {
+                    context.push('$path?peerName=${Uri.encodeComponent(peerDisplayName)}');
+                  } else {
+                    context.push(path);
+                  }
+                },
               ),
               const ProfileScreen(inShell: true),
             ],

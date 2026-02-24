@@ -11,7 +11,7 @@ import '../../social/providers/social_providers.dart';
 class ChatTabScreen extends ConsumerStatefulWidget {
   const ChatTabScreen({super.key, required this.onOpenChat});
 
-  final void Function(String peerId) onOpenChat;
+  final void Function(String peerId, [String? peerDisplayName]) onOpenChat;
 
   @override
   ConsumerState<ChatTabScreen> createState() => _ChatTabScreenState();
@@ -187,11 +187,16 @@ class _ChatTabScreenState extends ConsumerState<ChatTabScreen> with SingleTicker
         itemBuilder: (_, int i) {
           final c = _conversations[i];
           final peerId = c['peer_id']?.toString() ?? '';
+          final peerDisplayName = (c['peer_display_name']?.toString() ?? '').trim();
+          final peerUsername = c['peer_username']?.toString() ?? '';
+          final displayTitle = peerDisplayName.isNotEmpty
+              ? peerDisplayName
+              : (peerUsername.isNotEmpty ? peerUsername : peerId);
           final last = c['last_content']?.toString() ?? '';
           final lastAt = c['last_at']?.toString() ?? '';
           final unreadCount = c['unread_count'] is num ? (c['unread_count'] as num).toInt() : 0;
           return ListTile(
-            title: Text(peerId),
+            title: Text(displayTitle),
             subtitle: Text('$last $lastAt'),
             trailing: unreadCount > 0
                 ? CircleAvatar(
@@ -206,7 +211,7 @@ class _ChatTabScreenState extends ConsumerState<ChatTabScreen> with SingleTicker
                     ),
                   )
                 : null,
-            onTap: () => widget.onOpenChat(peerId),
+            onTap: () => widget.onOpenChat(peerId, displayTitle),
           );
         },
       ),
@@ -258,7 +263,7 @@ class _ChatTabScreenState extends ConsumerState<ChatTabScreen> with SingleTicker
                   ? Text(title.isNotEmpty ? title[0].toUpperCase() : '?')
                   : null,
             ),
-            onTap: () => widget.onOpenChat(id),
+            onTap: () => widget.onOpenChat(id, title),
           );
         },
       ),

@@ -83,12 +83,21 @@ class _ConversationListScreenState extends ConsumerState<ConversationListScreen>
                         itemBuilder: (_, int i) {
                           final c = _conversations[i];
                           final peerId = c['peer_id']?.toString() ?? '';
+                          final peerDisplayName = (c['peer_display_name']?.toString() ?? '').trim();
+                          final peerUsername = c['peer_username']?.toString() ?? '';
+                          final displayTitle = peerDisplayName.isNotEmpty
+                              ? peerDisplayName
+                              : (peerUsername.isNotEmpty ? peerUsername : peerId);
                           final last = c['last_content']?.toString() ?? '';
                           final lastAt = c['last_at']?.toString() ?? '';
+                          final path = '${AppRoutes.direct}/$peerId';
+                          final pushPath = displayTitle != peerId
+                              ? '$path?peerName=${Uri.encodeComponent(displayTitle)}'
+                              : path;
                           return ListTile(
-                            title: Text(peerId),
+                            title: Text(displayTitle),
                             subtitle: Text('$last $lastAt'),
-                            onTap: () => context.push('${AppRoutes.direct}/$peerId'),
+                            onTap: () => context.push(pushPath),
                           );
                         },
                       ),

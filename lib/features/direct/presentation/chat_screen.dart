@@ -9,8 +9,9 @@ import '../providers/chat_providers.dart';
 
 /// 与指定用户的私信聊天页（REST 初载 + WebSocket 实时接收 + 发送走 REST）。
 class ChatScreen extends ConsumerStatefulWidget {
-  const ChatScreen({super.key, required this.peerUserId});
+  const ChatScreen({super.key, required this.peerUserId, this.peerDisplayName});
   final String peerUserId;
+  final String? peerDisplayName;
 
   @override
   ConsumerState<ChatScreen> createState() => _ChatScreenState();
@@ -19,6 +20,18 @@ class ChatScreen extends ConsumerStatefulWidget {
 class _ChatScreenState extends ConsumerState<ChatScreen> {
   final TextEditingController _controller = TextEditingController();
   final ScrollController _scrollController = ScrollController();
+  bool _loadingOlder = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final me = ref.read(authStateProvider).valueOrNull;
+      if (me != null) {
+        ref.read(socialRepositoryProvider).markConversationRead(widget.peerUserId);
+      }
+    });
+  }
 
   void _subscribeWs(WidgetRef ref, String peerUserId, String myId) {
     ref.listen(wsRawMessagesProvider, (Object? prev, AsyncValue<Map<String, dynamic>> next) {
@@ -82,8 +95,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     }
     _subscribeWs(ref, widget.peerUserId, me.id);
     final messagesAsync = ref.watch(chatMessagesNotifierProvider(widget.peerUserId));
+    final displayName = widget.peerDisplayName?.trim().isNotEmpty == true
+        ? widget.peerDisplayName!
+        : widget.peerUserId;
     return Scaffold(
-      appBar: AppBar(title: Text('与 ${widget.peerUserId} 聊天')),
+      appBar: AppBar(title: Text('与 $displayName 聊天')),
       body: Column(
         children: <Widget>[
           Expanded(
@@ -92,18 +108,61 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 if (list.isEmpty) {
                   return const Center(child: Text('暂无消息，发一条开始聊天吧'));
                 }
-                return ListView.builder(
-                  controller: _scrollController,
-                  itemCount: list.length,
-                  itemBuilder: (_, int i) {
-                    final m = list[i];
-                    final isMe = m.senderId == me.id;
-                    return _MessageBubble(
-                      message: m,
-                      isMe: isMe,
-                      showStatus: isMe,
-                    );
+                final items = _buildTimeGroupedItems(list);
+                return NotificationListener<ScrollNotification>(
+                  onNotification: (ScrollNotification n) {
+                    if (n is ScrollEndNotification &&
+                        _scrollController.hasClients &&
+                        _scrollController.offset <= 80 &&
+                        !_loadingOlder &&
+                        list.isNotEmpty) {
+                      final oldest = list.first.createdAt;
+                      if (oldest != null && oldest.isNotEmpty) {
+                        _loadingOlder = true;
+                        ref
+                            .read(chatMessagesNotifierProvider(widget.peerUserId).notifier)
+                            .loadOlder(widget.peerUserId, oldest)
+                            .whenComplete(() {
+                          if (mounted) setState(() => _loadingOlder = false);
+                        });
+                      }
+                    }
+                    return false;
                   },
+                  child: ListView.builder(
+                    controller: _scrollController,
+                    itemCount: items.length + (_loadingOlder ? 1 : 0),
+                    itemBuilder: (_, int i) {
+                      if (_loadingOlder && i == 0) {
+                        return const Padding(
+                          padding: EdgeInsets.all(8),
+                          child: Center(child: SizedBox(height: 24, width: 24, child: CircularProgressIndicator(strokeWidth: 2))),
+                        );
+                      }
+                      final index = _loadingOlder ? i - 1 : i;
+                      final item = items[index];
+                      if (item.isHeader) {
+                        return Center(
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 8),
+                            child: Text(
+                              item.dateLabel!,
+                              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                                  ),
+                            ),
+                          ),
+                        );
+                      }
+                      final m = item.message!;
+                      final isMe = m.senderId == me.id;
+                      return _MessageBubble(
+                        message: m,
+                        isMe: isMe,
+                        showStatus: isMe,
+                      );
+                    },
+                  ),
                 );
               },
               loading: () => const Center(child: CircularProgressIndicator()),
@@ -135,6 +194,54 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       ),
     );
   }
+}
+
+/// 时间分组单条：要么是日期标题，要么是消息。
+class _ChatListItem {
+  _ChatListItem.header(this.dateLabel) : message = null;
+  _ChatListItem.message(this.message) : dateLabel = null;
+  final String? dateLabel;
+  final MessageModel? message;
+  bool get isHeader => dateLabel != null;
+}
+
+List<_ChatListItem> _buildTimeGroupedItems(List<MessageModel> list) {
+  final result = <_ChatListItem>[];
+  String? lastDateKey;
+  final now = DateTime.now();
+  final today = DateTime(now.year, now.month, now.day);
+  final yesterday = today.subtract(const Duration(days: 1));
+  for (final m in list) {
+    final createdAt = m.createdAt;
+    String dateKey;
+    String label;
+    if (createdAt == null || createdAt.isEmpty) {
+      dateKey = 'unknown';
+      label = '未知';
+    } else {
+      final dt = DateTime.tryParse(createdAt);
+      if (dt == null) {
+        dateKey = createdAt;
+        label = createdAt;
+      } else {
+        final d = DateTime(dt.year, dt.month, dt.day);
+        dateKey = d.toIso8601String();
+        if (d == today) {
+          label = '今天';
+        } else if (d == yesterday) {
+          label = '昨天';
+        } else {
+          label = '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}';
+        }
+      }
+    }
+    if (lastDateKey != dateKey) {
+      lastDateKey = dateKey;
+      result.add(_ChatListItem.header(label));
+    }
+    result.add(_ChatListItem.message(m));
+  }
+  return result;
 }
 
 class _MessageBubble extends StatelessWidget {
