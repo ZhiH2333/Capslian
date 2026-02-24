@@ -1,9 +1,17 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 
+import '../../../core/constants/image_upload_constants.dart';
+import '../../../core/constants/layout_constants.dart';
+import '../../../core/image/image_compression_service.dart';
+import '../../../core/responsive.dart';
 import '../../../core/router/app_router.dart';
+import '../../../shared/widgets/app_background.dart';
+import '../../../shared/widgets/app_scaffold.dart';
+import '../../../shared/widgets/empty_state.dart';
 import '../../auth/data/models/user_model.dart';
 import '../../auth/providers/auth_providers.dart';
 import '../../posts/providers/posts_providers.dart';
@@ -54,8 +62,31 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     });
     try {
       final postsRepo = ref.read(postsRepositoryProvider);
-      final url = await postsRepo.uploadImage(xFile.path, mimeType: xFile.mimeType ?? 'image/jpeg');
       final profileRepo = ref.read(profileRepositoryProvider);
+      String url;
+      if (kIsWeb) {
+        final rawBytes = await xFile.readAsBytes();
+        final compressedBytes = await ImageCompressionService.compressToBytes(
+          rawBytes,
+          maxBytesKb: ImageUploadConstants.avatarMaxKb,
+          maxWidth: ImageUploadConstants.avatarMaxDimension,
+          maxHeight: ImageUploadConstants.avatarMaxDimension,
+        );
+        final name = xFile.name.isNotEmpty ? xFile.name : 'avatar.jpg';
+        url = await postsRepo.uploadImageFromBytes(
+          compressedBytes,
+          filename: name,
+          mimeType: 'image/jpeg',
+        );
+      } else {
+        final compressedPath = await ImageCompressionService.compressToFile(
+          xFile.path,
+          maxBytesKb: ImageUploadConstants.avatarMaxKb,
+          maxWidth: ImageUploadConstants.avatarMaxDimension,
+          maxHeight: ImageUploadConstants.avatarMaxDimension,
+        );
+        url = await postsRepo.uploadImage(compressedPath, mimeType: 'image/jpeg');
+      }
       await profileRepo.updateMe(avatarUrl: url);
       ref.invalidate(authStateProvider);
       if (mounted) {
@@ -99,112 +130,135 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   @override
   Widget build(BuildContext context) {
     final authState = ref.watch(authStateProvider);
-    return authState.when(
-      data: (UserModel? user) {
-        if (user == null) {
-          return Scaffold(
-            appBar: AppBar(title: const Text('个人资料')),
-            body: Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
+    final wide = isWideScreen(context);
+    return AppBackground(
+      isRoot: true,
+      child: authState.when(
+        data: (UserModel? user) {
+          if (user == null) {
+            return AppScaffold(
+              isNoBackground: wide,
+              isWideScreen: wide,
+              appBar: AppBar(title: const Text('个人资料')),
+              body: EmptyState(
+                title: '请先登录',
+                description: '登录后查看与编辑个人资料',
+                action: FilledButton(
+                  onPressed: () => context.go(AppRoutes.login),
+                  child: const Text('去登录'),
+                ),
+              ),
+            );
+          }
+          _initFromUser(user);
+          return AppScaffold(
+            isNoBackground: wide,
+            isWideScreen: wide,
+            appBar: AppBar(
+              title: const Text('个人资料'),
+              actions: <Widget>[
+                IconButton(
+                  icon: const Icon(Icons.settings),
+                  onPressed: () => context.push(AppRoutes.settings),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.logout),
+                  onPressed: () async {
+                    await ref.read(authStateProvider.notifier).logout();
+                    if (context.mounted) context.go(AppRoutes.home);
+                  },
+                ),
+              ],
+            ),
+            body: Form(
+              key: _formKey,
+              child: ListView(
+                padding: const EdgeInsets.all(LayoutConstants.kSpacingXLarge),
                 children: <Widget>[
-                  const Text('请先登录'),
-                  TextButton(onPressed: () => context.go(AppRoutes.login), child: const Text('去登录')),
+                  Center(
+                    child: GestureDetector(
+                      onTap: _isLoading ? null : _pickAvatar,
+                      child: Stack(
+                        children: <Widget>[
+                          CircleAvatar(
+                            radius: 48,
+                            backgroundImage: user.avatarUrl != null && user.avatarUrl!.isNotEmpty
+                                ? NetworkImage(user.avatarUrl!)
+                                : null,
+                            child: user.avatarUrl == null || user.avatarUrl!.isEmpty
+                                ? Text((user.displayName ?? user.username).isNotEmpty ? (user.displayName ?? user.username)[0] : '?')
+                                : null,
+                          ),
+                          if (_isLoading)
+                            const Positioned.fill(
+                              child: DecoratedBox(
+                                decoration: BoxDecoration(color: Colors.black26),
+                                child: Center(child: CircularProgressIndicator()),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: LayoutConstants.kSpacingSmall),
+                  Center(child: Text(_isLoading ? '上传中...' : '点击头像更换')),
+                  const SizedBox(height: LayoutConstants.kSpacingXLarge),
+                  TextFormField(
+                    controller: _displayNameController,
+                    decoration: const InputDecoration(labelText: '显示名', border: OutlineInputBorder()),
+                    enabled: !_isLoading,
+                    validator: (String? v) => (v?.trim() ?? '').isEmpty ? '请输入显示名' : null,
+                  ),
+                  const SizedBox(height: LayoutConstants.kSpacingLarge),
+                  TextFormField(
+                    controller: _bioController,
+                    decoration: const InputDecoration(labelText: '简介', border: OutlineInputBorder(), alignLabelWithHint: true),
+                    maxLines: 3,
+                    enabled: !_isLoading,
+                  ),
+                  if (_error != null) ...[
+                    const SizedBox(height: LayoutConstants.kSpacingMedium),
+                    Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+                  ],
+                  const SizedBox(height: LayoutConstants.kSpacingLarge),
+                  ListTile(
+                    contentPadding: LayoutConstants.kListTileContentPadding,
+                    minLeadingWidth: LayoutConstants.kListTileMinLeadingWidth,
+                    leading: const Icon(Icons.mail_outline),
+                    title: const Text('好友申请'),
+                    subtitle: const Text('查看、接受或拒绝好友申请'),
+                    onTap: () => context.push(AppRoutes.friendRequests),
+                    shape: RoundedRectangleBorder(borderRadius: LayoutConstants.kRadiusSmallBR),
+                  ),
+                  const SizedBox(height: LayoutConstants.kSpacingXLarge),
+                  FilledButton(
+                    onPressed: _isLoading ? null : _save,
+                    child: _isLoading ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2)) : const Text('保存'),
+                  ),
                 ],
               ),
             ),
           );
-        }
-        _initFromUser(user);
-        return Scaffold(
-          appBar: AppBar(
-            title: const Text('个人资料'),
-            actions: <Widget>[
-              IconButton(
-                icon: const Icon(Icons.settings),
-                onPressed: () => context.push(AppRoutes.settings),
-              ),
-              IconButton(
-                icon: const Icon(Icons.logout),
-                onPressed: () async {
-                  await ref.read(authStateProvider.notifier).logout();
-                  if (context.mounted) context.go(AppRoutes.home);
-                },
-              ),
-            ],
-          ),
-          body: Form(
-            key: _formKey,
-            child: ListView(
-              padding: const EdgeInsets.all(24),
-              children: <Widget>[
-                Center(
-                  child: GestureDetector(
-                    onTap: _isLoading ? null : _pickAvatar,
-                    child: Stack(
-                      children: <Widget>[
-                        CircleAvatar(
-                          radius: 48,
-                          backgroundImage: user.avatarUrl != null && user.avatarUrl!.isNotEmpty
-                              ? NetworkImage(user.avatarUrl!)
-                              : null,
-                          child: user.avatarUrl == null || user.avatarUrl!.isEmpty
-                              ? Text((user.displayName ?? user.username).isNotEmpty ? (user.displayName ?? user.username)[0] : '?')
-                              : null,
-                        ),
-                        if (_isLoading)
-                          const Positioned.fill(
-                            child: DecoratedBox(
-                              decoration: BoxDecoration(color: Colors.black26),
-                              child: Center(child: CircularProgressIndicator()),
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Center(child: Text(_isLoading ? '上传中...' : '点击头像更换')),
-                const SizedBox(height: 24),
-                TextFormField(
-                  controller: _displayNameController,
-                  decoration: const InputDecoration(labelText: '显示名', border: OutlineInputBorder()),
-                  enabled: !_isLoading,
-                  validator: (String? v) => (v?.trim() ?? '').isEmpty ? '请输入显示名' : null,
-                ),
-                const SizedBox(height: 16),
-                TextFormField(
-                  controller: _bioController,
-                  decoration: const InputDecoration(labelText: '简介', border: OutlineInputBorder(), alignLabelWithHint: true),
-                  maxLines: 3,
-                  enabled: !_isLoading,
-                ),
-                if (_error != null) ...[
-                  const SizedBox(height: 12),
-                  Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
-                ],
-                const SizedBox(height: 16),
-                ListTile(
-                  leading: const Icon(Icons.mail_outline),
-                  title: const Text('好友申请'),
-                  subtitle: const Text('查看、接受或拒绝好友申请'),
-                  onTap: () => context.push(AppRoutes.friendRequests),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                ),
-                const SizedBox(height: 24),
-                FilledButton(
-                  onPressed: _isLoading ? null : _save,
-                  child: _isLoading ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2)) : const Text('保存'),
-                ),
-              ],
+        },
+        loading: () => AppScaffold(
+          isNoBackground: wide,
+          isWideScreen: wide,
+          appBar: AppBar(title: const Text('个人资料')),
+          body: const Center(child: CircularProgressIndicator()),
+        ),
+        error: (Object err, StackTrace? stack) => AppScaffold(
+          isNoBackground: wide,
+          isWideScreen: wide,
+          appBar: AppBar(title: const Text('个人资料')),
+          body: EmptyState(
+            title: '加载失败',
+            description: err.toString(),
+            action: TextButton(
+              onPressed: () => context.go(AppRoutes.login),
+              child: const Text('去登录'),
             ),
           ),
-        );
-      },
-      loading: () => Scaffold(appBar: AppBar(title: const Text('个人资料')), body: const Center(child: CircularProgressIndicator())),
-      error: (Object err, StackTrace? stack) => Scaffold(
-        appBar: AppBar(title: const Text('个人资料')),
-        body: Center(child: TextButton(onPressed: () => context.go(AppRoutes.login), child: const Text('去登录'))),
+        ),
       ),
     );
   }

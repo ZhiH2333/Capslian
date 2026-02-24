@@ -1,12 +1,30 @@
+import 'dart:typed_data';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:uuid/uuid.dart';
 
+import '../../../core/constants/image_upload_constants.dart';
+import '../../../core/image/image_compression_service.dart';
 import '../../../core/router/app_router.dart';
+import '../../../shared/widgets/app_scaffold.dart';
+import '../../../shared/widgets/auto_leading_button.dart';
 import '../providers/posts_providers.dart';
 
-/// 发布帖子：正文 + 可选图片（先上传再发布）。
+/// 上传中单条：非 Web 用 path，Web 用 bytes+filename。
+class _UploadingEntry {
+  _UploadingEntry({required this.id, this.path, this.bytes, this.filename});
+  final String id;
+  final String? path;
+  final Uint8List? bytes;
+  final String? filename;
+  String? error;
+}
+
+/// 发布帖子：正文 + 可选图片（先压缩再上传再发布）。
 class CreatePostScreen extends ConsumerStatefulWidget {
   const CreatePostScreen({super.key});
 
@@ -20,8 +38,10 @@ class _CreatePostScreenState extends ConsumerState<CreatePostScreen> {
   final _descriptionController = TextEditingController();
   final _contentController = TextEditingController();
   final List<String> _imageUrls = [];
+  final List<_UploadingEntry> _uploadingEntries = [];
   bool _isLoading = false;
   String? _error;
+  static const _uuid = Uuid();
 
   @override
   void dispose() {
@@ -31,17 +51,128 @@ class _CreatePostScreenState extends ConsumerState<CreatePostScreen> {
     super.dispose();
   }
 
+  int get _totalImageCount => _imageUrls.length + _uploadingEntries.length;
+
   Future<void> _pickImage() async {
+    if (_totalImageCount >= ImageUploadConstants.maxPostImages) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('最多添加 9 张图片')),
+        );
+      }
+      return;
+    }
     final picker = ImagePicker();
     final xFile = await picker.pickImage(source: ImageSource.gallery, imageQuality: 85);
     if (xFile == null || !mounted) return;
     setState(() => _error = null);
+    final repo = ref.read(postsRepositoryProvider);
+    if (kIsWeb) {
+      Uint8List rawBytes;
+      try {
+        rawBytes = await xFile.readAsBytes();
+      } catch (e) {
+        if (mounted) setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+        return;
+      }
+      Uint8List compressedBytes;
+      try {
+        compressedBytes = await ImageCompressionService.compressToBytes(
+          rawBytes,
+          maxBytesKb: ImageUploadConstants.postImageMaxKb,
+          maxWidth: ImageUploadConstants.postImageMaxDimension,
+          maxHeight: ImageUploadConstants.postImageMaxDimension,
+        );
+      } catch (e) {
+        if (mounted) setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+        return;
+      }
+      if (!mounted) return;
+      final name = xFile.name.isNotEmpty ? xFile.name : 'image.jpg';
+      final entry = _UploadingEntry(id: _uuid.v4(), bytes: compressedBytes, filename: name);
+      setState(() => _uploadingEntries.add(entry));
+      try {
+        final url = await repo.uploadImageFromBytes(
+          compressedBytes,
+          filename: name,
+          mimeType: 'image/jpeg',
+        );
+        if (!mounted) return;
+        setState(() {
+          _uploadingEntries.removeWhere((e) => e.id == entry.id);
+          _imageUrls.add(url);
+        });
+      } catch (e) {
+        if (mounted) {
+          setState(() {
+            final idx = _uploadingEntries.indexWhere((e) => e.id == entry.id);
+            if (idx >= 0) _uploadingEntries[idx].error = e.toString().replaceFirst('Exception: ', '');
+          });
+        }
+      }
+      return;
+    }
+    String compressedPath;
     try {
-      final repo = ref.read(postsRepositoryProvider);
-      final url = await repo.uploadImage(xFile.path, mimeType: xFile.mimeType ?? 'image/jpeg');
-      setState(() => _imageUrls.add(url));
+      compressedPath = await ImageCompressionService.compressToFile(
+        xFile.path,
+        maxBytesKb: ImageUploadConstants.postImageMaxKb,
+        maxWidth: ImageUploadConstants.postImageMaxDimension,
+        maxHeight: ImageUploadConstants.postImageMaxDimension,
+      );
     } catch (e) {
-      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      if (mounted) setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      return;
+    }
+    if (!mounted) return;
+    final entry = _UploadingEntry(id: _uuid.v4(), path: compressedPath);
+    setState(() => _uploadingEntries.add(entry));
+    try {
+      final url = await repo.uploadImage(compressedPath, mimeType: 'image/jpeg');
+      if (!mounted) return;
+      setState(() {
+        _uploadingEntries.removeWhere((e) => e.id == entry.id);
+        _imageUrls.add(url);
+      });
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          final idx = _uploadingEntries.indexWhere((e) => e.id == entry.id);
+          if (idx >= 0) _uploadingEntries[idx].error = e.toString().replaceFirst('Exception: ', '');
+        });
+      }
+    }
+  }
+
+  void _removeUploading(_UploadingEntry entry) {
+    setState(() => _uploadingEntries.removeWhere((e) => e.id == entry.id));
+  }
+
+  Future<void> _retryUploading(_UploadingEntry entry) async {
+    setState(() => entry.error = null);
+    final repo = ref.read(postsRepositoryProvider);
+    try {
+      final String url;
+      if (entry.bytes != null && entry.filename != null) {
+        url = await repo.uploadImageFromBytes(
+          entry.bytes!,
+          filename: entry.filename!,
+          mimeType: 'image/jpeg',
+        );
+      } else if (entry.path != null) {
+        url = await repo.uploadImage(entry.path!, mimeType: 'image/jpeg');
+      } else {
+        return;
+      }
+      if (!mounted) return;
+      setState(() {
+        _uploadingEntries.removeWhere((e) => e.id == entry.id);
+        _imageUrls.add(url);
+      });
+    } catch (e) {
+      if (mounted) {
+        setState(() => entry.error = e.toString().replaceFirst('Exception: ', ''));
+      }
     }
   }
 
@@ -73,8 +204,12 @@ class _CreatePostScreenState extends ConsumerState<CreatePostScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('发布')),
+    return AppScaffold(
+      isNoBackground: false,
+      appBar: AppBar(
+        leading: const AutoLeadingButton(),
+        title: const Text('发布'),
+      ),
       body: Form(
         key: _formKey,
         child: ListView(
@@ -149,8 +284,57 @@ class _CreatePostScreenState extends ConsumerState<CreatePostScreen> {
               ),
               const SizedBox(height: 12),
             ],
+            if (_uploadingEntries.isNotEmpty) ...[
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: _uploadingEntries.map((entry) {
+                  return SizedBox(
+                    width: 80,
+                    height: 80,
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: <Widget>[
+                        DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: entry.error != null
+                              ? Padding(
+                                  padding: const EdgeInsets.all(8),
+                                  child: Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: <Widget>[
+                                      Text(entry.error!, maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 10, color: Theme.of(context).colorScheme.error)),
+                                      const SizedBox(height: 4),
+                                      Row(
+                                        mainAxisAlignment: MainAxisAlignment.center,
+                                        children: <Widget>[
+                                          IconButton(
+                                            icon: const Icon(Icons.refresh, size: 18),
+                                            onPressed: () => _retryUploading(entry),
+                                          ),
+                                          IconButton(
+                                            icon: const Icon(Icons.close, size: 18),
+                                            onPressed: () => _removeUploading(entry),
+                                          ),
+                                        ],
+                                      ),
+                                    ],
+                                  ),
+                                )
+                              : const Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                        ),
+                      ],
+                    ),
+                  );
+                }).toList(),
+              ),
+              const SizedBox(height: 12),
+            ],
             OutlinedButton.icon(
-              onPressed: _isLoading ? null : _pickImage,
+              onPressed: _isLoading || _totalImageCount >= ImageUploadConstants.maxPostImages ? null : _pickImage,
               icon: const Icon(Icons.add_photo_alternate),
               label: const Text('添加图片'),
             ),

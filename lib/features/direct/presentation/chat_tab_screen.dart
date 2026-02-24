@@ -2,7 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/constants/layout_constants.dart';
+import '../../../core/responsive.dart';
 import '../../../core/router/app_router.dart';
+import '../../../shared/widgets/app_scaffold.dart';
+import '../../../shared/widgets/empty_state.dart';
 import '../../auth/providers/auth_providers.dart';
 import '../providers/chat_providers.dart';
 import '../../social/providers/social_providers.dart';
@@ -91,25 +95,25 @@ class _ChatTabScreenState extends ConsumerState<ChatTabScreen> with SingleTicker
         if (mounted) setState(() => _didTriggerWsConnect = true);
       });
     }
+    final wide = isWideScreen(context);
     if (user == null) {
-      return Scaffold(
+      return AppScaffold(
+        isNoBackground: wide,
+        isWideScreen: wide,
         appBar: AppBar(title: const Text('聊天')),
-        body: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: <Widget>[
-              const Text('请先登录后查看聊天'),
-              const SizedBox(height: 16),
-              FilledButton(
-                onPressed: () => context.go(AppRoutes.login),
-                child: const Text('去登录'),
-              ),
-            ],
+        body: EmptyState(
+          title: '请先登录',
+          description: '登录后查看聊天与好友',
+          action: FilledButton(
+            onPressed: () => context.go(AppRoutes.login),
+            child: const Text('去登录'),
           ),
         ),
       );
     }
-    return Scaffold(
+    return AppScaffold(
+      isNoBackground: wide,
+      isWideScreen: wide,
       appBar: AppBar(
         title: const Text('聊天'),
         bottom: TabBar(
@@ -132,17 +136,12 @@ class _ChatTabScreenState extends ConsumerState<ChatTabScreen> with SingleTicker
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
-              ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: <Widget>[
-                      Text(_error!, textAlign: TextAlign.center),
-                      const SizedBox(height: 8),
-                      TextButton(
-                        onPressed: _load,
-                        child: const Text('重试'),
-                      ),
-                    ],
+              ? EmptyState(
+                  title: '加载失败',
+                  description: _error!,
+                  action: TextButton(
+                    onPressed: _load,
+                    child: const Text('重试'),
                   ),
                 )
               : TabBarView(
@@ -157,32 +156,23 @@ class _ChatTabScreenState extends ConsumerState<ChatTabScreen> with SingleTicker
 
   Widget _buildConversationsList() {
     if (_conversations.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: <Widget>[
-            Icon(Icons.chat_bubble_outline, size: 64, color: Theme.of(context).colorScheme.outline),
-            const SizedBox(height: 16),
-            const Text('暂无会话'),
-            const SizedBox(height: 8),
-            Text(
-              '在「好友」中选择好友开始聊天，或点击右上角添加好友',
-              style: Theme.of(context).textTheme.bodySmall,
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 16),
-            FilledButton.icon(
-              onPressed: _openSearch,
-              icon: const Icon(Icons.person_add),
-              label: const Text('搜索用户添加好友'),
-            ),
-          ],
+      return EmptyState(
+        title: '暂无会话',
+        description: '在「好友」中选择好友开始聊天，或点击右上角添加好友',
+        icon: Icons.chat_bubble_outline,
+        action: FilledButton.icon(
+          onPressed: _openSearch,
+          icon: const Icon(Icons.person_add),
+          label: const Text('搜索用户添加好友'),
         ),
       );
     }
     return RefreshIndicator(
       onRefresh: _load,
       child: ListView.builder(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.paddingOf(context).bottom + LayoutConstants.kSpacingXLarge,
+        ),
         itemCount: _conversations.length,
         itemBuilder: (_, int i) {
           final c = _conversations[i];
@@ -196,6 +186,8 @@ class _ChatTabScreenState extends ConsumerState<ChatTabScreen> with SingleTicker
           final lastAt = c['last_at']?.toString() ?? '';
           final unreadCount = c['unread_count'] is num ? (c['unread_count'] as num).toInt() : 0;
           return ListTile(
+            contentPadding: LayoutConstants.kListTileContentPadding,
+            minLeadingWidth: LayoutConstants.kListTileMinLeadingWidth,
             title: Text(displayTitle),
             subtitle: Text('$last $lastAt'),
             trailing: unreadCount > 0
@@ -220,31 +212,23 @@ class _ChatTabScreenState extends ConsumerState<ChatTabScreen> with SingleTicker
 
   Widget _buildFriendsList() {
     if (_friends.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: <Widget>[
-            Icon(Icons.people_outline, size: 64, color: Theme.of(context).colorScheme.outline),
-            const SizedBox(height: 16),
-            const Text('暂无好友'),
-            const SizedBox(height: 8),
-            Text(
-              '点击右上角搜索并添加好友',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-            const SizedBox(height: 16),
-            FilledButton.icon(
-              onPressed: _openSearch,
-              icon: const Icon(Icons.person_add),
-              label: const Text('搜索用户添加好友'),
-            ),
-          ],
+      return EmptyState(
+        title: '暂无好友',
+        description: '点击右上角搜索并添加好友',
+        icon: Icons.people_outline,
+        action: FilledButton.icon(
+          onPressed: _openSearch,
+          icon: const Icon(Icons.person_add),
+          label: const Text('搜索用户添加好友'),
         ),
       );
     }
     return RefreshIndicator(
       onRefresh: _load,
       child: ListView.builder(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.paddingOf(context).bottom + LayoutConstants.kSpacingXLarge,
+        ),
         itemCount: _friends.length,
         itemBuilder: (_, int i) {
           final f = _friends[i];
@@ -253,6 +237,8 @@ class _ChatTabScreenState extends ConsumerState<ChatTabScreen> with SingleTicker
           final username = f['username']?.toString() ?? '';
           final title = displayName.isNotEmpty ? displayName : username;
           return ListTile(
+            contentPadding: LayoutConstants.kListTileContentPadding,
+            minLeadingWidth: LayoutConstants.kListTileMinLeadingWidth,
             title: Text(title),
             subtitle: username != title ? Text(username) : null,
             leading: CircleAvatar(

@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/router/app_router.dart';
+import '../../../shared/widgets/app_scaffold.dart';
+import '../../../shared/widgets/auto_leading_button.dart';
 import '../providers/auth_providers.dart';
 
 /// 注册页：用户名、密码、显示名（可选），提交后更新 authState 并跳转首页。
@@ -44,8 +46,12 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
   Widget build(BuildContext context) {
     final authState = ref.watch(authStateProvider);
     final isLoading = authState.isLoading;
-    return Scaffold(
-      appBar: AppBar(title: const Text('注册')),
+    return AppScaffold(
+      isNoBackground: false,
+      appBar: AppBar(
+        leading: const AutoLeadingButton(),
+        title: const Text('注册'),
+      ),
       body: Form(
         key: _formKey,
         child: ListView(

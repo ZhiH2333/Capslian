@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/constants/layout_constants.dart';
+import '../../../shared/widgets/app_scaffold.dart';
+import '../../../shared/widgets/auto_leading_button.dart';
 import '../../social/providers/social_providers.dart';
 
 /// 帖子评论列表与发表。
@@ -85,8 +88,13 @@ class _PostCommentsScreenState extends ConsumerState<PostCommentsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('评论')),
+    final bottomPadding = MediaQuery.paddingOf(context).bottom + LayoutConstants.kSpacingLarge;
+    return AppScaffold(
+      isNoBackground: false,
+      appBar: AppBar(
+        leading: const AutoLeadingButton(),
+        title: const Text('评论'),
+      ),
       body: Column(
         children: <Widget>[
           Expanded(
@@ -94,35 +102,47 @@ class _PostCommentsScreenState extends ConsumerState<PostCommentsScreen> {
                 ? const Center(child: CircularProgressIndicator())
                 : _error != null
                     ? Center(child: Text(_error!))
-                    : ListView.builder(
-                        itemCount: _comments.length,
-                        itemBuilder: (_, int i) {
-                          final c = _comments[i];
-                          final user = c['user'] is Map ? c['user'] as Map<String, dynamic> : null;
-                          final name = user?['display_name'] ?? user?['username'] ?? c['display_name']?.toString() ?? c['username']?.toString() ?? '?';
-                          return ListTile(
-                            title: Text(name),
-                            subtitle: Text(c['content']?.toString() ?? ''),
-                          );
-                        },
+                    : Center(
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: LayoutConstants.kContentMaxWidthWide),
+                          child: ListView.builder(
+                            padding: EdgeInsets.only(bottom: bottomPadding),
+                            itemCount: _comments.length,
+                            itemBuilder: (_, int i) {
+                              final c = _comments[i];
+                              final user = c['user'] is Map ? c['user'] as Map<String, dynamic> : null;
+                              final name = user?['display_name'] ?? user?['username'] ?? c['display_name']?.toString() ?? c['username']?.toString() ?? '?';
+                              return ListTile(
+                                contentPadding: LayoutConstants.kListTileContentPadding,
+                                title: Text(name),
+                                subtitle: Text(c['content']?.toString() ?? ''),
+                              );
+                            },
+                          ),
+                        ),
                       ),
           ),
           Padding(
-            padding: const EdgeInsets.all(8),
-            child: Row(
-              children: <Widget>[
-                Expanded(
-                  child: TextField(
-                    controller: _controller,
-                    decoration: const InputDecoration(hintText: '写评论...', border: OutlineInputBorder()),
-                    onSubmitted: (_) => _send(),
-                  ),
+            padding: const EdgeInsets.all(LayoutConstants.kSpacingSmall),
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: LayoutConstants.kContentMaxWidthWide),
+                child: Row(
+                  children: <Widget>[
+                    Expanded(
+                      child: TextField(
+                        controller: _controller,
+                        decoration: const InputDecoration(hintText: '写评论...', border: OutlineInputBorder()),
+                        onSubmitted: (_) => _send(),
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: _sending ? null : _send,
+                      icon: _sending ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.send),
+                    ),
+                  ],
                 ),
-                IconButton(
-                  onPressed: _sending ? null : _send,
-                  icon: _sending ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.send),
-                ),
-              ],
+              ),
             ),
           ),
         ],

@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/router/app_router.dart';
+import '../../../shared/widgets/app_scaffold.dart';
+import '../../../shared/widgets/auto_leading_button.dart';
 import '../providers/auth_providers.dart';
 
 /// 登录页：用户名、密码、提交后更新 authState 并跳转首页。
@@ -41,8 +43,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   Widget build(BuildContext context) {
     final authState = ref.watch(authStateProvider);
     final isLoading = authState.isLoading;
-    return Scaffold(
-      appBar: AppBar(title: const Text('登录')),
+    return AppScaffold(
+      isNoBackground: false,
+      appBar: AppBar(
+        leading: const AutoLeadingButton(),
+        title: const Text('登录'),
+      ),
       body: Form(
         key: _formKey,
         child: ListView(
@@ -114,3 +120,4 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     );
   }
 }
+

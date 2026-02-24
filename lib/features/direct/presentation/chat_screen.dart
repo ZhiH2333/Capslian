@@ -4,6 +4,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../../core/constants/layout_constants.dart';
+import '../../../shared/widgets/app_scaffold.dart';
+import '../../../shared/widgets/auto_leading_button.dart';
 import '../../auth/providers/auth_providers.dart';
 import '../../social/providers/social_providers.dart';
 import '../data/models/message_model.dart';
@@ -137,8 +140,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   Widget build(BuildContext context) {
     final me = ref.watch(authStateProvider).valueOrNull;
     if (me == null) {
-      return Scaffold(
-        appBar: AppBar(title: const Text('聊天')),
+      return AppScaffold(
+        isNoBackground: false,
+        appBar: AppBar(
+          leading: const AutoLeadingButton(),
+          title: const Text('聊天'),
+        ),
         body: const Center(child: Text('请先登录')),
       );
     }
@@ -149,10 +156,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         : widget.peerUserId;
     return Scaffold(
       appBar: AppBar(
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () => context.pop(),
-        ),
+        leading: const AutoLeadingButton(),
         title: Row(
           mainAxisSize: MainAxisSize.min,
           mainAxisAlignment: MainAxisAlignment.center,

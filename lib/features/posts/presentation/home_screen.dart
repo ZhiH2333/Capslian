@@ -2,11 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/constants/layout_constants.dart';
+import '../../../core/responsive.dart';
 import '../../../core/router/app_router.dart';
+import '../../../shared/widgets/app_scaffold.dart';
+import '../../../shared/widgets/empty_state.dart';
 import '../../auth/data/models/user_model.dart';
 import '../../auth/providers/auth_providers.dart';
-import '../data/models/post_model.dart';
 import '../../social/providers/social_providers.dart';
+import '../data/models/post_model.dart';
 import '../data/posts_repository.dart';
 import '../providers/posts_providers.dart';
 
@@ -20,22 +24,27 @@ class HomeScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final authState = ref.watch(authStateProvider);
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Molian'),
-        actions: <Widget>[
-          if (!inShell && authState.valueOrNull != null) ...[
-            IconButton(
-              icon: const Icon(Icons.chat),
-              onPressed: () => context.push(AppRoutes.direct),
+    final wide = isWideScreen(context);
+    return AppScaffold(
+      isNoBackground: wide,
+      isWideScreen: wide,
+      appBar: inShell
+          ? null
+          : AppBar(
+              title: const Text('Molian'),
+              actions: <Widget>[
+                if (authState.valueOrNull != null) ...[
+                  IconButton(
+                    icon: const Icon(Icons.chat),
+                    onPressed: () => context.push(AppRoutes.direct),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.person),
+                    onPressed: () => context.push(AppRoutes.profile),
+                  ),
+                ],
+              ],
             ),
-            IconButton(
-              icon: const Icon(Icons.person),
-              onPressed: () => context.push(AppRoutes.profile),
-            ),
-          ],
-        ],
-      ),
       body: authState.when(
         data: (UserModel? user) {
           if (user == null) {
@@ -44,16 +53,12 @@ class HomeScreen extends ConsumerWidget {
           return _TimelineBody();
         },
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (Object err, StackTrace? stack) => Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: <Widget>[
-              const Text('加载失败'),
-              TextButton(
-                onPressed: () => context.push(AppRoutes.login),
-                child: const Text('去登录'),
-              ),
-            ],
+        error: (Object err, StackTrace? stack) => EmptyState(
+          title: '加载失败',
+          description: err.toString(),
+          action: TextButton(
+            onPressed: () => context.push(AppRoutes.login),
+            child: const Text('去登录'),
           ),
         ),
       ),
@@ -94,30 +99,41 @@ class _TimelineBody extends ConsumerWidget {
     return pageAsync.when(
       data: (PostsPageResult result) {
         if (result.posts.isEmpty) {
-          return Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: <Widget>[
-                const Text('还没有帖子'),
-                const SizedBox(height: 8),
-                TextButton(
-                  onPressed: () => context.push(AppRoutes.createPost),
-                  child: const Text('发一条'),
-                ),
-              ],
+          return EmptyState(
+            title: '还没有帖子',
+            description: '发一条动态吧',
+            icon: Icons.edit_note,
+            action: FilledButton.icon(
+              onPressed: () => context.push(AppRoutes.createPost),
+              icon: const Icon(Icons.add),
+              label: const Text('发一条'),
             ),
           );
         }
+        final bottomPadding = MediaQuery.paddingOf(context).bottom + 64;
         return RefreshIndicator(
           onRefresh: () async {
             ref.invalidate(postsListProvider(const PostsListKey()));
           },
-          child: ListView.builder(
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            itemCount: result.posts.length,
-            itemBuilder: (BuildContext context, int index) {
-              return _PostTile(post: result.posts[index]);
-            },
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: LayoutConstants.kContentMaxWidthWide),
+              child: ListView.builder(
+                padding: EdgeInsets.only(
+                  top: LayoutConstants.kSpacingSmall,
+                  bottom: bottomPadding,
+                  left: LayoutConstants.kSpacingSmall,
+                  right: LayoutConstants.kSpacingSmall,
+                ),
+                itemCount: result.posts.length,
+                itemBuilder: (BuildContext context, int index) {
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: LayoutConstants.kSpacingSmall),
+                    child: _PostTile(post: result.posts[index]),
+                  );
+                },
+              ),
+            ),
           ),
         );
       },
@@ -162,9 +178,9 @@ class _PostTile extends ConsumerWidget {
     final isOwnPost = authUser != null && authUser.id == post.userId;
     final parsed = _parsePostContent(post.content);
     return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      color: theme.colorScheme.surfaceContainerHighest,
+      margin: EdgeInsets.zero,
+      shape: RoundedRectangleBorder(borderRadius: LayoutConstants.kRadiusMediumBR),
+      color: theme.cardTheme.color ?? theme.colorScheme.surfaceContainer,
       child: Padding(
         padding: const EdgeInsets.all(12),
         child: Column(
@@ -483,7 +499,7 @@ class _ReplySection extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: theme.colorScheme.outlineVariant.withValues(alpha: 0.5)),
+            border: Border.all(color: theme.colorScheme.outlineVariant.withOpacity(0.5)),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
