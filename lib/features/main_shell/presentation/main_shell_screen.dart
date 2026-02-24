@@ -2,13 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/responsive.dart';
 import '../../../core/router/app_router.dart';
+import '../../auth/data/models/user_model.dart';
 import '../../auth/providers/auth_providers.dart';
 import '../../posts/presentation/home_screen.dart';
 import '../../profile/presentation/profile_screen.dart';
 import '../../direct/presentation/chat_tab_screen.dart';
 
-/// 主壳：底部导航「浏览、聊天、个人」，未登录时仅显示浏览并引导登录。
+/// 主壳：窄屏底部 NavigationBar，宽屏（≥768）左侧 NavigationRail；「浏览、聊天、个人」。
 class MainShellScreen extends ConsumerStatefulWidget {
   const MainShellScreen({super.key});
 
@@ -25,40 +27,69 @@ class _MainShellScreenState extends ConsumerState<MainShellScreen> {
     _NavItem(label: '个人', icon: Icons.person_outline, selectedIcon: Icons.person),
   ];
 
+  void _onDestinationSelected(int index, UserModel? user) {
+    if (index == 1 || index == 2) {
+      if (user == null) {
+        context.go(AppRoutes.login);
+        return;
+      }
+    }
+    setState(() => _currentIndex = index);
+  }
+
   @override
   Widget build(BuildContext context) {
     final authState = ref.watch(authStateProvider);
+    final width = screenWidth(context);
+    final useRail = useNavigationRail(width);
     return authState.when(
       data: (user) {
+        final body = IndexedStack(
+          index: _currentIndex,
+          children: <Widget>[
+            const HomeScreen(inShell: true),
+            ChatTabScreen(
+              onOpenChat: (String peerId, [String? peerDisplayName]) {
+                final path = '${AppRoutes.direct}/$peerId';
+                if (peerDisplayName != null && peerDisplayName.isNotEmpty) {
+                  context.push('$path?peerName=${Uri.encodeComponent(peerDisplayName)}');
+                } else {
+                  context.push(path);
+                }
+              },
+            ),
+            const ProfileScreen(inShell: true),
+          ],
+        );
+        if (useRail) {
+          return Scaffold(
+            body: Row(
+              children: <Widget>[
+                NavigationRail(
+                  selectedIndex: _currentIndex,
+                  onDestinationSelected: (int index) => _onDestinationSelected(index, user),
+                  labelType: NavigationRailLabelType.all,
+                  destinations: _navItems
+                      .map(
+                        (_NavItem item) => NavigationRailDestination(
+                          icon: Icon(item.icon),
+                          selectedIcon: Icon(item.selectedIcon),
+                          label: Text(item.label),
+                        ),
+                      )
+                      .toList(),
+                ),
+                const VerticalDivider(thickness: 1, width: 1),
+                Expanded(child: body),
+              ],
+            ),
+          );
+        }
         return Scaffold(
-          body: IndexedStack(
-            index: _currentIndex,
-            children: <Widget>[
-              const HomeScreen(inShell: true),
-              ChatTabScreen(
-                onOpenChat: (String peerId, [String? peerDisplayName]) {
-                  final path = '${AppRoutes.direct}/$peerId';
-                  if (peerDisplayName != null && peerDisplayName.isNotEmpty) {
-                    context.push('$path?peerName=${Uri.encodeComponent(peerDisplayName)}');
-                  } else {
-                    context.push(path);
-                  }
-                },
-              ),
-              const ProfileScreen(inShell: true),
-            ],
-          ),
+          body: body,
           bottomNavigationBar: NavigationBar(
             selectedIndex: _currentIndex,
-            onDestinationSelected: (int index) {
-              if (index == 1 || index == 2) {
-                if (user == null) {
-                  context.go(AppRoutes.login);
-                  return;
-                }
-              }
-              setState(() => _currentIndex = index);
-            },
+            onDestinationSelected: (int index) => _onDestinationSelected(index, user),
             destinations: _navItems
                 .map(
                   (_NavItem item) => NavigationDestination(
