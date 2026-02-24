@@ -10,6 +10,7 @@ import 'core/router/app_router.dart';
 import 'core/theme/app_theme.dart';
 import 'core/theme/theme_mode_provider.dart';
 import 'features/direct/providers/chat_providers.dart';
+import 'features/notifications/providers/notifications_providers.dart';
 
 void main() {
   runZonedGuarded(() {
@@ -44,6 +45,7 @@ class MolianApp extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     ref.watch(wsLifecycleProvider);
+    ref.watch(pushSubscribeOnAuthProvider);
     final themeMode = ref.watch(themeModeProvider);
     return MaterialApp.router(
       title: 'Molian',
