@@ -22,6 +22,7 @@ class ApiConstants {
   static const String upload = '/upload';
   static const String usersMeFollowing = '/users/me/following';
   static const String usersMeFollowers = '/users/me/followers';
+  static const String usersMeFriends = '/users/me/friends';
   static const String usersSearch = '/users/search';
   static const String friendRequests = '/friend-requests';
 }

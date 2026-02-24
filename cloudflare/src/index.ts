@@ -532,6 +532,29 @@ export default {
       }
     }
 
+    if (pathname === "/users/me/friends" && request.method === "GET") {
+      const userId = await getUserIdFromRequest(request, secret);
+      if (!userId) return jsonResponse({ error: "未登录" }, 401);
+      try {
+        const { results } = await env.capslian_db.prepare(
+          `SELECT u.id, u.username, u.display_name, u.avatar_url
+           FROM friend_requests fr
+           JOIN users u ON u.id = CASE WHEN fr.requester_id = ? THEN fr.target_id ELSE fr.requester_id END
+           WHERE (fr.requester_id = ? OR fr.target_id = ?) AND fr.status = 'accepted'`
+        )
+          .bind(userId, userId, userId)
+          .all();
+        return jsonResponse({ friends: results });
+      } catch (e) {
+        console.error("users/me/friends GET error:", e);
+        const msg = e && typeof (e as { message?: string }).message === "string" ? (e as { message: string }).message : String(e);
+        if (msg.includes("no such table") || msg.includes("friend_requests")) {
+          return jsonResponse({ error: "服务未就绪" }, 503);
+        }
+        return jsonResponse({ error: "获取失败" }, 500);
+      }
+    }
+
     if (pathname === "/messages" && request.method === "GET") {
       const userId = await getUserIdFromRequest(request, secret);
       if (!userId) return jsonResponse({ error: "未登录" }, 401);

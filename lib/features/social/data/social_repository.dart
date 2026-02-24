@@ -108,4 +108,12 @@ class SocialRepository {
       '${ApiConstants.friendRequests}/$requestId/reject',
     );
   }
+
+  /// 获取当前用户的好友列表（已接受的好友关系）。
+  Future<List<Map<String, dynamic>>> getFriends() async {
+    final response = await _dio.get<Map<String, dynamic>>(ApiConstants.usersMeFriends);
+    final data = response.data;
+    if (data == null || data['friends'] is! List) return [];
+    return List<Map<String, dynamic>>.from(data['friends'] as List);
+  }
 }
