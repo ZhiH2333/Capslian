@@ -1,5 +1,7 @@
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../auth/providers/auth_providers.dart';
@@ -21,6 +23,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   final TextEditingController _controller = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   bool _loadingOlder = false;
+  bool _hasScrolledToBottomOnce = false;
 
   @override
   void initState() {
@@ -71,9 +74,51 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       final repo = ref.read(socialRepositoryProvider);
       final raw = await repo.sendMessage(widget.peerUserId, content);
       final serverMessage = MessageModel.fromJson(raw);
-      if (mounted) notifier.replaceOrAppend(serverMessage);
+      if (mounted) notifier.replaceOrAppend(serverMessage, replaceTemporaryId: tempId);
     } catch (_) {
       if (mounted) notifier.markFailed(tempId);
+    }
+  }
+
+  Future<void> _removeFriendAndPop() async {
+    final displayName = widget.peerDisplayName?.trim().isNotEmpty == true
+        ? widget.peerDisplayName!
+        : widget.peerUserId;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext ctx) => AlertDialog(
+        title: const Text('删除好友'),
+        content: Text('确定删除好友「$displayName」吗？'),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    try {
+      await ref.read(socialRepositoryProvider).removeFriend(widget.peerUserId);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已删除好友')));
+      context.pop();
+    } on DioException catch (e) {
+      if (!mounted) return;
+      final Object? data = e.response?.data;
+      final String? msg = data is Map<String, dynamic>
+          ? (data['error'] as String?)
+          : null;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(msg ?? '删除失败，请重试')),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('删除失败，请重试')));
     }
   }
 
@@ -99,16 +144,75 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         ? widget.peerDisplayName!
         : widget.peerUserId;
     return Scaffold(
-      appBar: AppBar(title: Text('与 $displayName 聊天')),
+      appBar: AppBar(
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () => context.pop(),
+        ),
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: <Widget>[
+            CircleAvatar(
+              radius: 18,
+              backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
+              child: Text(
+                displayName.isNotEmpty ? displayName[0].toUpperCase() : '?',
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Flexible(
+              child: Text(
+                displayName,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+            ),
+          ],
+        ),
+        centerTitle: true,
+        actions: <Widget>[
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert),
+            onSelected: (String value) {
+              if (value == 'delete_friend') _removeFriendAndPop();
+            },
+            itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
+              PopupMenuItem<String>(
+                value: 'delete_friend',
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    Icon(Icons.person_remove, size: 20),
+                    const SizedBox(width: 12),
+                    const Text('删除好友'),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
       body: Column(
         children: <Widget>[
           Expanded(
             child: messagesAsync.when(
               data: (List<MessageModel> list) {
+                // 列表已按时间升序（早→晚），从上到下展示；对方消息左侧、我方消息右侧（与微信一致）。
                 if (list.isEmpty) {
                   return const Center(child: Text('暂无消息，发一条开始聊天吧'));
                 }
                 final items = _buildTimeGroupedItems(list);
+                if (!_hasScrolledToBottomOnce) {
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (!_scrollController.hasClients || !mounted) return;
+                    _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
+                    if (mounted) setState(() => _hasScrolledToBottomOnce = true);
+                  });
+                }
                 return NotificationListener<ScrollNotification>(
                   onNotification: (ScrollNotification n) {
                     if (n is ScrollEndNotification &&
@@ -176,9 +280,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 Expanded(
                   child: TextField(
                     controller: _controller,
-                    decoration: const InputDecoration(
-                      hintText: '输入消息...',
-                      border: OutlineInputBorder(),
+                    decoration: InputDecoration(
+                      hintText: 'Message to $displayName',
+                      border: const OutlineInputBorder(),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                     ),
                     onSubmitted: (_) => _send(),
                   ),
@@ -216,8 +321,8 @@ List<_ChatListItem> _buildTimeGroupedItems(List<MessageModel> list) {
     String dateKey;
     String label;
     if (createdAt == null || createdAt.isEmpty) {
-      dateKey = 'unknown';
-      label = '未知';
+      dateKey = today.toIso8601String();
+      label = '今天';
     } else {
       final dt = DateTime.tryParse(createdAt);
       if (dt == null) {
@@ -244,6 +349,7 @@ List<_ChatListItem> _buildTimeGroupedItems(List<MessageModel> list) {
   return result;
 }
 
+/// 单条消息气泡：我方（isMe）靠右，对方靠左，与微信一致。
 class _MessageBubble extends StatelessWidget {
   const _MessageBubble({
     required this.message,
@@ -259,19 +365,12 @@ class _MessageBubble extends StatelessWidget {
   Widget build(BuildContext context) {
     IconData? statusIcon;
     if (showStatus) {
-      switch (message.status) {
-        case MessageStatus.sending:
-          statusIcon = Icons.schedule;
-          break;
-        case MessageStatus.sent:
-          statusIcon = Icons.done;
-          break;
-        case MessageStatus.read:
-          statusIcon = Icons.done_all;
-          break;
-        case MessageStatus.failed:
-          statusIcon = Icons.error_outline;
-          break;
+      if (message.status == MessageStatus.sending) {
+        statusIcon = Icons.schedule;
+      } else if (message.status == MessageStatus.failed) {
+        statusIcon = Icons.error_outline;
+      } else {
+        statusIcon = message.read ? Icons.done_all : Icons.done;
       }
     }
     return Align(

@@ -47,14 +47,23 @@ class SocialRepository {
     return List<Map<String, dynamic>>.from(data['conversations'] as List);
   }
 
-  Future<List<Map<String, dynamic>>> getMessages(String withUserId, {String? cursor}) async {
-    final uri = Uri.parse(ApiConstants.messages).replace(
-      queryParameters: <String, String>{'with_user': withUserId, ...? (cursor != null ? <String, String>{'cursor': cursor} : null)},
-    );
+  Future<List<Map<String, dynamic>>> getMessages(String withUserId, {String? cursor, int? limit}) async {
+    final queryParams = <String, String>{'with_user': withUserId};
+    if (cursor != null) queryParams['cursor'] = cursor;
+    if (limit != null) queryParams['limit'] = limit.toString();
+    final uri = Uri.parse(ApiConstants.messages).replace(queryParameters: queryParams);
     final response = await _dio.get<Map<String, dynamic>>(uri.toString());
     final data = response.data;
     if (data == null || data['messages'] is! List) return [];
     return List<Map<String, dynamic>>.from(data['messages'] as List);
+  }
+
+  /// 将与某用户的会话标记为已读（对方发来的未读消息全部标已读）。
+  Future<void> markConversationRead(String withUserId) async {
+    await _dio.post<Map<String, dynamic>>(
+      '${ApiConstants.messages}/mark-read',
+      data: <String, dynamic>{'with_user': withUserId},
+    );
   }
 
   Future<Map<String, dynamic>> sendMessage(String receiverId, String content) async {
@@ -115,5 +124,10 @@ class SocialRepository {
     final data = response.data;
     if (data == null || data['friends'] is! List) return [];
     return List<Map<String, dynamic>>.from(data['friends'] as List);
+  }
+
+  /// 删除好友（解除好友关系）。
+  Future<void> removeFriend(String friendUserId) async {
+    await _dio.delete<Map<String, dynamic>>('${ApiConstants.usersMeFriends}/$friendUserId');
   }
 }

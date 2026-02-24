@@ -116,12 +116,16 @@ class ChatMessagesNotifier extends FamilyAsyncNotifier<List<MessageModel>, Strin
   }
 
   /// 按 id 替换或追加一条（发送成功/服务端回包）并落库。
-  void replaceOrAppend(MessageModel message) {
+  /// [replaceTemporaryId] 若不为空，会先移除该临时 id 的乐观消息，再写入服务端消息，避免同条消息出现两次、时间轴错乱。
+  void replaceOrAppend(MessageModel message, {String? replaceTemporaryId}) {
     final current = state.valueOrNull;
     if (current == null) return;
     _saveToLocal(message);
-    final idx = current.indexWhere((m) => m.id == message.id);
-    final next = List<MessageModel>.from(current);
+    List<MessageModel> next = List<MessageModel>.from(current);
+    if (replaceTemporaryId != null) {
+      next.removeWhere((m) => m.id == replaceTemporaryId);
+    }
+    final idx = next.indexWhere((m) => m.id == message.id);
     if (idx >= 0) {
       next[idx] = message;
     } else {
@@ -174,9 +178,10 @@ class ChatMessagesNotifier extends FamilyAsyncNotifier<List<MessageModel>, Strin
   }
 }
 
+/// 按时间升序排序（旧在上、新在下）。createdAt 为 null 的乐观消息视为最新，排到末尾。
 int _compareCreatedAt(String? a, String? b) {
   if (a == null && b == null) return 0;
-  if (a == null) return -1;
-  if (b == null) return 1;
+  if (a == null) return 1;
+  if (b == null) return -1;
   return a.compareTo(b);
 }

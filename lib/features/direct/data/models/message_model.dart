@@ -74,7 +74,7 @@ class MessageModel {
       createdAt: json['created_at'] as String?,
       type: _parseType(json['type'] as String?),
       status: _parseStatus(json['status'] as String?),
-      read: json['read'] == true,
+      read: json['read'] == true || json['read'] == 1,
       readAt: json['read_at'] as String?,
       attachmentUrl: json['attachment_url'] as String?,
     );
