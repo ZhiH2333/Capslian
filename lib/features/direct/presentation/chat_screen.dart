@@ -40,8 +40,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     ref.listen(wsRawMessagesProvider, (Object? prev, AsyncValue<Map<String, dynamic>> next) {
       next.whenData((Map<String, dynamic> payload) {
         final type = payload['type'] as String?;
-        if (type != 'message') return;
-        final msg = payload['message'] as Map<String, dynamic>?;
+        Map<String, dynamic>? msg;
+        if (type == 'dm') {
+          msg = payload;
+        } else if (type == 'message') {
+          msg = payload['message'] as Map<String, dynamic>?;
+        }
         if (msg == null) return;
         final senderId = msg['sender_id']?.toString() ?? '';
         final receiverId = msg['receiver_id']?.toString() ?? '';
