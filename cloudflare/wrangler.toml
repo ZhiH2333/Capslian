@@ -1,6 +1,9 @@
 # Molian API Worker
 # 部署前请执行: wrangler d1 create molian-db 并替换下方 database_id（或沿用现有 DB 的 id）
 # R2: wrangler r2 bucket create molian-assets
+#
+# 本地与线上共用同一 D1/R2：使用 npm run dev（内部为 wrangler dev --remote），
+# 本地 Worker 会连接云端 D1、R2；仅需本地 D1/R2 时用 npm run dev:local。
 name = "molian-api"
 main = "src/index.ts"
 compatibility_date = "2024-12-01"
@@ -15,10 +18,9 @@ database_name = "molian-db"
 database_id = "54e1d4d0-ec73-42a8-b208-fd2ffe2fe4b4"
 migrations_dir = "migrations"
 
-# R2 is not enable
-# [[r2_buckets]]
-# binding = "ASSETS"
-# bucket_name = "molian-assets"
+[[r2_buckets]]
+binding = "ASSETS"
+bucket_name = "molian-assets"
 
 [durable_objects]
 bindings = [

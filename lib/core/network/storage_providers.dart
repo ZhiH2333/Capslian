@@ -10,5 +10,5 @@ final sharedPreferencesProvider = Provider<SharedPreferences>((ref) {
 
 final tokenStorageProvider = Provider<TokenStorage>((ref) {
   final prefs = ref.watch(sharedPreferencesProvider);
-  return TokenStorage(prefs);
+  return PrefsTokenStorage(prefs);
 });

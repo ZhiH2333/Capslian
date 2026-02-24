@@ -32,7 +32,10 @@ class AuthRepository {
       final data = response.data;
       if (data == null || data['user'] == null) throw Exception('注册响应异常');
       final token = data['token'] as String?;
-      if (token != null && token.isNotEmpty) await _tokenStorage.setToken(token);
+      final refreshToken = data['refresh_token'] as String?;
+      if (token != null && token.isNotEmpty) {
+        await _tokenStorage.setTokens(token, refreshToken);
+      }
       return UserModel.fromJson(data['user'] as Map<String, dynamic>);
     } on DioException catch (e) {
       final msg = e.response?.data is Map ? (e.response!.data as Map)['error'] as String? : null;
@@ -49,7 +52,10 @@ class AuthRepository {
       final data = response.data;
       if (data == null || data['user'] == null) throw Exception('登录响应异常');
       final token = data['token'] as String?;
-      if (token != null && token.isNotEmpty) await _tokenStorage.setToken(token);
+      final refreshToken = data['refresh_token'] as String?;
+      if (token != null && token.isNotEmpty) {
+        await _tokenStorage.setTokens(token, refreshToken);
+      }
       return UserModel.fromJson(data['user'] as Map<String, dynamic>);
     } on DioException catch (e) {
       final msg = e.response?.data is Map ? (e.response!.data as Map)['error'] as String? : null;
@@ -72,5 +78,25 @@ class AuthRepository {
 
   Future<void> logout() async {
     await _tokenStorage.clearToken();
+  }
+
+  /// 使用 refresh_token 换取新 access token 与用户信息；失败时抛异常。
+  Future<UserModel> refresh() async {
+    final refreshToken = _tokenStorage.getRefreshToken();
+    if (refreshToken == null || refreshToken.isEmpty) {
+      throw Exception('无 refresh token');
+    }
+    final response = await _dio.post<Map<String, dynamic>>(
+      ApiConstants.authRefresh,
+      data: <String, dynamic>{'refresh_token': refreshToken},
+    );
+    final data = response.data;
+    if (data == null || data['user'] == null) throw Exception('刷新响应异常');
+    final token = data['token'] as String?;
+    final newRefreshToken = data['refresh_token'] as String?;
+    if (token != null && token.isNotEmpty) {
+      await _tokenStorage.setTokens(token, newRefreshToken);
+    }
+    return UserModel.fromJson(data['user'] as Map<String, dynamic>);
   }
 }
