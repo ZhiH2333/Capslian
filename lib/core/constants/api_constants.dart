@@ -4,7 +4,7 @@ class ApiConstants {
 
   static const String baseUrl = String.fromEnvironment(
     'API_BASE_URL',
-    defaultValue: 'https://capslian-api.zhih2333.workers.dev', // 改成这个
+    defaultValue: 'https://molian-api.zhih2333.workers.dev',
   );
 
   static const String wsBaseUrl = String.fromEnvironment(

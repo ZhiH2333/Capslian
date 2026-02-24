@@ -5,15 +5,15 @@
 // gestures. You can also use WidgetTester to find child widgets in the widget
 // tree, read text, and verify that the values of widget properties are correct.
 
-import 'package:capslian/core/network/storage_providers.dart';
-import 'package:capslian/main.dart';
+import 'package:molian/core/network/storage_providers.dart';
+import 'package:molian/main.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
-  testWidgets('CapslianApp 启动需注入 SharedPreferences', (WidgetTester tester) async {
+  testWidgets('MolianApp 启动需注入 SharedPreferences', (WidgetTester tester) async {
     TestWidgetsFlutterBinding.ensureInitialized();
     SharedPreferences.setMockInitialValues({});
     final prefs = await SharedPreferences.getInstance();
@@ -22,7 +22,7 @@ void main() {
         overrides: [
           sharedPreferencesProvider.overrideWith((ref) => prefs),
         ],
-        child: const CapslianApp(),
+        child: const MolianApp(),
       ),
     );
     expect(find.byType(MaterialApp), findsOneWidget);

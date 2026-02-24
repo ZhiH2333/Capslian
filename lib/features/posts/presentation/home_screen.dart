@@ -22,7 +22,7 @@ class HomeScreen extends ConsumerWidget {
     final authState = ref.watch(authStateProvider);
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Capslian'),
+        title: const Text('Molian'),
         actions: <Widget>[
           if (!inShell && authState.valueOrNull != null) ...[
             IconButton(

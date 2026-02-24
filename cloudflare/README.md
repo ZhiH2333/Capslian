@@ -1,7 +1,7 @@
-# Capslian API (Cloudflare Workers)
+# Molian API (Cloudflare Workers)
 
 - **D1**：用户、帖子、关注、私信等表，见 `migrations/0000_initial.sql`。
-- **R2**：`capslian-assets` 存储头像、帖子图片。
+- **R2**：`molian-assets` 存储头像、帖子图片。
 - **Durable Objects**：`ChatRoom` 用于 DM 实时会话（V1 实现）。
 
 ## 首次部署
@@ -10,7 +10,7 @@
    ```bash
    npm run db:create
    ```
-2. （可选）创建 R2 桶：`wrangler r2 bucket create capslian-assets`
+2. （可选）创建 R2 桶：`wrangler r2 bucket create molian-assets`
 3. 本地应用迁移：`npm run db:migrate:local`
 4. 部署：`npm run deploy`
 

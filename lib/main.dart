@@ -11,16 +11,17 @@ import 'core/theme/app_theme.dart';
 import 'core/theme/theme_mode_provider.dart';
 import 'features/direct/providers/chat_providers.dart';
 
-Future<void> main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  final prefs = await SharedPreferences.getInstance();
+void main() {
   runZonedGuarded(() {
-    runApp(
-      ProviderScope(
-        overrides: [sharedPreferencesProvider.overrideWith((ref) => prefs)],
-        child: const CapslianApp(),
-      ),
-    );
+    WidgetsFlutterBinding.ensureInitialized();
+    SharedPreferences.getInstance().then((SharedPreferences prefs) {
+      runApp(
+        ProviderScope(
+          overrides: [sharedPreferencesProvider.overrideWith((ref) => prefs)],
+          child: const MolianApp(),
+        ),
+      );
+    });
   }, (Object error, StackTrace stack) {
     if (error is WebSocketChannelException) {
       return;
@@ -37,15 +38,15 @@ Future<void> main() async {
   });
 }
 
-class CapslianApp extends ConsumerWidget {
-  const CapslianApp({super.key});
+class MolianApp extends ConsumerWidget {
+  const MolianApp({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     ref.watch(wsLifecycleProvider);
     final themeMode = ref.watch(themeModeProvider);
     return MaterialApp.router(
-      title: 'Capslian',
+      title: 'Molian',
       theme: AppTheme.light,
       darkTheme: AppTheme.dark,
       themeMode: themeMode,

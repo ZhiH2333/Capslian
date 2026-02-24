@@ -1,4 +1,4 @@
-name: capslian
+name: molian
 description: "A new Flutter project."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
@@ -41,6 +41,9 @@ dependencies:
   hive: ^2.2.3
   hive_flutter: ^1.1.0
   uuid: ^4.5.1
+  sqflite: ^2.4.1
+  path: ^1.9.0
+  path_provider: ^2.1.5
   freezed_annotation: ^2.4.4
   json_annotation: ^4.9.0
 
