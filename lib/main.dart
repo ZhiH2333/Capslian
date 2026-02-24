@@ -6,6 +6,7 @@ import 'core/network/storage_providers.dart';
 import 'core/router/app_router.dart';
 import 'core/theme/app_theme.dart';
 import 'core/theme/theme_mode_provider.dart';
+import 'features/direct/providers/chat_providers.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -25,6 +26,7 @@ class CapslianApp extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    ref.watch(wsLifecycleProvider);
     final themeMode = ref.watch(themeModeProvider);
     return MaterialApp.router(
       title: 'Capslian',
