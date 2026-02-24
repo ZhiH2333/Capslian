@@ -1,4 +1,7 @@
+import 'dart:typed_data';
+
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 
 import '../../../core/constants/api_constants.dart';
 import 'models/post_model.dart';
@@ -56,11 +59,36 @@ class PostsRepository {
     await _dio.delete<Map<String, dynamic>>('${ApiConstants.posts}/$id');
   }
 
-  /// 上传单张图片，返回可访问的 URL。
+  /// 上传单张图片（本地路径），仅非 Web 平台。Web 请用 [uploadImageFromBytes]。
   Future<String> uploadImage(String path, {required String mimeType}) async {
+    if (kIsWeb) {
+      throw UnsupportedError('Web 端请使用 uploadImageFromBytes');
+    }
     final formData = FormData.fromMap({
       'file': await MultipartFile.fromFile(path, filename: path.split('/').last),
     });
+    return _uploadFormData(formData);
+  }
+
+  /// 上传单张图片（字节），Web 与各平台通用。
+  Future<String> uploadImageFromBytes(
+    Uint8List bytes, {
+    required String filename,
+    required String mimeType,
+  }) async {
+    final parts = mimeType.split('/');
+    final contentType = parts.length >= 2 ? DioMediaType(parts[0], parts[1]) : null;
+    final formData = FormData.fromMap({
+      'file': MultipartFile.fromBytes(
+        bytes,
+        filename: filename,
+        contentType: contentType,
+      ),
+    });
+    return _uploadFormData(formData);
+  }
+
+  Future<String> _uploadFormData(FormData formData) async {
     final response = await _dio.post<Map<String, dynamic>>(
       ApiConstants.upload,
       data: formData,

@@ -12,6 +12,10 @@ class PostModel {
     this.likeCount = 0,
     this.liked = false,
     this.commentCount = 0,
+    this.viewCount = 0,
+    this.repostCount = 0,
+    this.isReposted = false,
+    this.isBookmarked = false,
     this.user,
   });
 
@@ -24,6 +28,10 @@ class PostModel {
   final int likeCount;
   final bool liked;
   final int commentCount;
+  final int viewCount;
+  final int repostCount;
+  final bool isReposted;
+  final bool isBookmarked;
   final PostUser? user;
 
   factory PostModel.fromJson(Map<String, dynamic> json) {
@@ -54,6 +62,10 @@ class PostModel {
       likeCount: (json['like_count'] as num?)?.toInt() ?? 0,
       liked: json['liked'] as bool? ?? false,
       commentCount: (json['comment_count'] as num?)?.toInt() ?? 0,
+      viewCount: (json['view_count'] as num?)?.toInt() ?? 0,
+      repostCount: (json['repost_count'] as num?)?.toInt() ?? 0,
+      isReposted: json['is_reposted'] as bool? ?? false,
+      isBookmarked: json['is_bookmarked'] as bool? ?? false,
       user: u,
     );
   }
