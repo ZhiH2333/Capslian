@@ -9,6 +9,7 @@ import 'core/network/storage_providers.dart';
 import 'core/router/app_router.dart';
 import 'core/theme/app_theme.dart';
 import 'core/theme/theme_mode_provider.dart';
+import 'core/theme/theme_settings_provider.dart';
 import 'features/direct/providers/chat_providers.dart';
 import 'features/notifications/providers/notifications_providers.dart';
 
@@ -47,10 +48,11 @@ class MolianApp extends ConsumerWidget {
     ref.watch(wsLifecycleProvider);
     ref.watch(pushSubscribeOnAuthProvider);
     final themeMode = ref.watch(themeModeProvider);
+    final themeSettings = ref.watch(themeSettingsProvider);
     return MaterialApp.router(
       title: 'Molian',
-      theme: AppTheme.light,
-      darkTheme: AppTheme.dark,
+      theme: AppTheme.light(themeSettings),
+      darkTheme: AppTheme.dark(themeSettings),
       themeMode: themeMode,
       routerConfig: createAppRouter(),
     );

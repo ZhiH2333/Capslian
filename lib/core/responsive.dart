@@ -16,3 +16,6 @@ bool useSidebarLayout(double width) => width >= breakpointDesktop;
 
 /// 当前上下文宽度（MediaQuery）。
 double screenWidth(BuildContext context) => MediaQuery.sizeOf(context).width;
+
+/// 是否为宽屏（≥768），用于 Rail 与双栏布局。
+bool isWideScreen(BuildContext context) => screenWidth(context) >= breakpointTablet;
