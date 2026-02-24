@@ -93,7 +93,7 @@ class WebSocketService {
       _reconnectAttempts = 0;
       _emitConnectionState(WsConnectionState.connected);
       _startHeartbeat();
-    } catch (e) {
+    } catch (e, _) {
       _emitConnectionState(WsConnectionState.disconnected);
       _scheduleReconnect();
     }

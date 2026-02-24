@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:web_socket_channel/web_socket_channel.dart';
 
 import 'core/network/storage_providers.dart';
 import 'core/router/app_router.dart';
@@ -11,14 +14,27 @@ import 'features/direct/providers/chat_providers.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final prefs = await SharedPreferences.getInstance();
-  runApp(
-    ProviderScope(
-      overrides: [
-        sharedPreferencesProvider.overrideWith((ref) => prefs),
-      ],
-      child: const CapslianApp(),
-    ),
-  );
+  runZonedGuarded(() {
+    runApp(
+      ProviderScope(
+        overrides: [sharedPreferencesProvider.overrideWith((ref) => prefs)],
+        child: const CapslianApp(),
+      ),
+    );
+  }, (Object error, StackTrace stack) {
+    if (error is WebSocketChannelException) {
+      return;
+    }
+    if (error.toString().contains('Connection refused') &&
+        error.toString().contains('61199')) {
+      return;
+    }
+    FlutterError.reportError(FlutterErrorDetails(
+      exception: error,
+      stack: stack,
+      library: 'runZonedGuarded',
+    ));
+  });
 }
 
 class CapslianApp extends ConsumerWidget {

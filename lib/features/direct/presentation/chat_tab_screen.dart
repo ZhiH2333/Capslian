@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/router/app_router.dart';
 import '../../auth/providers/auth_providers.dart';
+import '../providers/chat_providers.dart';
 import '../../social/providers/social_providers.dart';
 
 /// 聊天 Tab：会话列表 + 好友列表，可与好友发起或继续聊天。
@@ -21,6 +22,7 @@ class _ChatTabScreenState extends ConsumerState<ChatTabScreen> with SingleTicker
   List<Map<String, dynamic>> _friends = [];
   bool _loading = true;
   String? _error;
+  bool _didTriggerWsConnect = false;
   late TabController _tabController;
 
   @override
@@ -82,6 +84,13 @@ class _ChatTabScreenState extends ConsumerState<ChatTabScreen> with SingleTicker
   @override
   Widget build(BuildContext context) {
     final user = ref.watch(authStateProvider).valueOrNull;
+    if (user != null && !_didTriggerWsConnect) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || _didTriggerWsConnect) return;
+        ref.read(webSocketServiceProvider).connect();
+        if (mounted) setState(() => _didTriggerWsConnect = true);
+      });
+    }
     if (user == null) {
       return Scaffold(
         appBar: AppBar(title: const Text('聊天')),
@@ -180,9 +189,23 @@ class _ChatTabScreenState extends ConsumerState<ChatTabScreen> with SingleTicker
           final peerId = c['peer_id']?.toString() ?? '';
           final last = c['last_content']?.toString() ?? '';
           final lastAt = c['last_at']?.toString() ?? '';
+          final unreadCount = c['unread_count'] is num ? (c['unread_count'] as num).toInt() : 0;
           return ListTile(
             title: Text(peerId),
             subtitle: Text('$last $lastAt'),
+            trailing: unreadCount > 0
+                ? CircleAvatar(
+                    radius: 12,
+                    backgroundColor: Theme.of(context).colorScheme.error,
+                    child: Text(
+                      unreadCount > 99 ? '99+' : unreadCount.toString(),
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.onError,
+                        fontSize: 12,
+                      ),
+                    ),
+                  )
+                : null,
             onTap: () => widget.onOpenChat(peerId),
           );
         },
