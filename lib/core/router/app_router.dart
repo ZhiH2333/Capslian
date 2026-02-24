@@ -4,8 +4,10 @@ import 'package:go_router/go_router.dart';
 import '../../features/auth/presentation/login_screen.dart';
 import '../../features/auth/presentation/register_screen.dart';
 import '../../features/profile/presentation/profile_screen.dart';
+import '../../features/posts/data/models/post_model.dart';
 import '../../features/posts/presentation/create_post_screen.dart';
 import '../../features/posts/presentation/post_comments_screen.dart';
+import '../../features/posts/presentation/post_detail_screen.dart';
 import '../../features/direct/presentation/chat_screen.dart';
 import '../../features/direct/presentation/conversation_list_screen.dart';
 import '../../features/direct/presentation/friend_requests_screen.dart';
@@ -65,9 +67,17 @@ GoRouter createAppRouter() {
             const CreatePostScreen(),
       ),
       GoRoute(
+        path: '/posts/:id',
+        builder: (BuildContext context, GoRouterState state) {
+          final String id = state.pathParameters['id'] ?? '';
+          final PostModel? initialPost = state.extra as PostModel?;
+          return PostDetailScreen(postId: id, initialPost: initialPost);
+        },
+      ),
+      GoRoute(
         path: '/posts/:id/comments',
         builder: (BuildContext context, GoRouterState state) {
-          final id = state.pathParameters['id'] ?? '';
+          final String id = state.pathParameters['id'] ?? '';
           return PostCommentsScreen(postId: id);
         },
       ),

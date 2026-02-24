@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/network/dio_provider.dart';
+import '../data/models/post_model.dart';
 import '../data/posts_repository.dart';
 
 final postsRepositoryProvider = Provider<PostsRepository>((ref) {
@@ -12,6 +13,12 @@ final postsRepositoryProvider = Provider<PostsRepository>((ref) {
 final postsListProvider = FutureProvider.family<PostsPageResult, PostsListKey>((ref, key) async {
   final repo = ref.watch(postsRepositoryProvider);
   return repo.fetchPosts(limit: key.limit, cursor: key.cursor);
+});
+
+/// 单条帖子详情 provider。
+final postDetailProvider = FutureProvider.family<PostModel?, String>((ref, id) async {
+  final repo = ref.watch(postsRepositoryProvider);
+  return repo.getPost(id);
 });
 
 class PostsListKey {
