@@ -1,0 +1,217 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../auth/providers/auth_providers.dart';
+import '../../social/providers/social_providers.dart';
+
+/// 全站用户搜索：输入关键词搜索，可对结果发送好友申请。
+class UserSearchScreen extends ConsumerStatefulWidget {
+  const UserSearchScreen({super.key});
+
+  @override
+  ConsumerState<UserSearchScreen> createState() => _UserSearchScreenState();
+}
+
+class _UserSearchScreenState extends ConsumerState<UserSearchScreen> {
+  final TextEditingController _queryController = TextEditingController();
+  final FocusNode _focusNode = FocusNode();
+  List<Map<String, dynamic>> _results = [];
+  bool _loading = false;
+  String? _error;
+  final Set<String> _sendingIds = <String>{};
+  final Set<String> _sentIds = <String>{};
+
+  @override
+  void dispose() {
+    _queryController.dispose();
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  Future<void> _search(String query) async {
+    if (query.trim().isEmpty) {
+      setState(() {
+        _results = [];
+        _error = null;
+      });
+      return;
+    }
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final repo = ref.read(socialRepositoryProvider);
+      final list = await repo.searchUsers(query);
+      if (mounted) {
+        setState(() {
+          _results = list;
+          _loading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _error = e.toString().replaceFirst('Exception: ', '');
+          _loading = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _sendFriendRequest(String targetId) async {
+    setState(() => _sendingIds.add(targetId));
+    try {
+      final repo = ref.read(socialRepositoryProvider);
+      await repo.sendFriendRequest(targetId);
+      if (mounted) {
+        setState(() {
+          _sendingIds.remove(targetId);
+          _sentIds.add(targetId);
+        });
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('好友申请已发送')));
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _sendingIds.remove(targetId));
+        final msg = e.toString().replaceFirst('Exception: ', '');
+        final is409 = msg.contains('409') || msg.contains('已发送') || msg.contains('已是好友');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(is409 ? '已发送过申请或已是好友' : '发送失败：$msg')),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final me = ref.watch(authStateProvider).valueOrNull;
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('搜索用户'),
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(56),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+            child: TextField(
+              controller: _queryController,
+              focusNode: _focusNode,
+              decoration: InputDecoration(
+                hintText: '输入用户名或显示名搜索',
+                prefixIcon: const Icon(Icons.search),
+                border: const OutlineInputBorder(),
+                filled: true,
+              ),
+              textInputAction: TextInputAction.search,
+              onSubmitted: _search,
+            ),
+          ),
+        ),
+      ),
+      body: me == null
+          ? const Center(child: Text('请先登录'))
+          : Column(
+              children: <Widget>[
+                Padding(
+                  padding: const EdgeInsets.all(8),
+                  child: SizedBox(
+                    width: double.infinity,
+                    child: FilledButton.icon(
+                      onPressed: _loading
+                          ? null
+                          : () => _search(_queryController.text),
+                      icon: _loading
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.search),
+                      label: const Text('搜索全站用户'),
+                    ),
+                  ),
+                ),
+                if (_error != null)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: Text(_error!, style: TextStyle(color: theme.colorScheme.error)),
+                  ),
+                Expanded(
+                  child: _results.isEmpty && !_loading
+                      ? Center(
+                          child: Text(
+                            _queryController.text.trim().isEmpty
+                                ? '输入关键词后点击搜索'
+                                : '未找到匹配用户',
+                            style: theme.textTheme.bodyLarge?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                        )
+                      : _loading
+                          ? const Center(child: CircularProgressIndicator())
+                          : ListView.builder(
+                              itemCount: _results.length,
+                              itemBuilder: (_, int i) {
+                                final u = _results[i];
+                                final id = u['id']?.toString() ?? '';
+                                final username = u['username']?.toString() ?? '';
+                                final displayName = u['display_name']?.toString() ?? '';
+                                final avatarUrl = u['avatar_url']?.toString();
+                                final name = displayName.isNotEmpty ? displayName : username;
+                                final isMe = id == me.id;
+                                final isSent = _sentIds.contains(id);
+                                final isSending = _sendingIds.contains(id);
+                                return ListTile(
+                                  leading: CircleAvatar(
+                                    backgroundColor: theme.colorScheme.primaryContainer,
+                                    backgroundImage: avatarUrl != null && avatarUrl.isNotEmpty
+                                        ? NetworkImage(avatarUrl)
+                                        : null,
+                                    child: avatarUrl == null || avatarUrl.isEmpty
+                                        ? Text(
+                                            name.isNotEmpty ? name[0] : '?',
+                                            style: TextStyle(
+                                              color: theme.colorScheme.onPrimaryContainer,
+                                            ),
+                                          )
+                                        : null,
+                                  ),
+                                  title: Text(name),
+                                  subtitle: username.isNotEmpty ? Text('@$username') : null,
+                                  trailing: isMe
+                                      ? Text(
+                                          '本人',
+                                          style: theme.textTheme.bodySmall?.copyWith(
+                                            color: theme.colorScheme.outline,
+                                          ),
+                                        )
+                                      : isSent
+                                          ? Text(
+                                              '已发送',
+                                              style: theme.textTheme.bodySmall?.copyWith(
+                                                color: theme.colorScheme.primary,
+                                              ),
+                                            )
+                                          : TextButton(
+                                              onPressed: isSending
+                                                  ? null
+                                                  : () => _sendFriendRequest(id),
+                                              child: isSending
+                                                  ? const SizedBox(
+                                                      width: 20,
+                                                      height: 20,
+                                                      child: CircularProgressIndicator(strokeWidth: 2),
+                                                    )
+                                                  : const Text('发送好友申请'),
+                                            ),
+                                );
+                              },
+                            ),
+                ),
+              ],
+            ),
+    );
+  }
+}

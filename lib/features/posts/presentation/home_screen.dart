@@ -12,7 +12,10 @@ import '../providers/posts_providers.dart';
 
 /// 首页：已登录显示时间线与发布 FAB，未登录显示登录/注册入口。
 class HomeScreen extends ConsumerWidget {
-  const HomeScreen({super.key});
+  const HomeScreen({super.key, this.inShell = false});
+
+  /// 是否嵌入底部导航壳；为 true 时不显示顶部聊天/个人入口。
+  final bool inShell;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -21,7 +24,7 @@ class HomeScreen extends ConsumerWidget {
       appBar: AppBar(
         title: const Text('Capslian'),
         actions: <Widget>[
-          if (authState.valueOrNull != null) ...[
+          if (!inShell && authState.valueOrNull != null) ...[
             IconButton(
               icon: const Icon(Icons.chat),
               onPressed: () => context.push(AppRoutes.direct),

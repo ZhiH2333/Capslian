@@ -11,7 +11,10 @@ import '../providers/profile_providers.dart';
 
 /// 个人资料：展示与编辑 display_name、bio、头像；登出。
 class ProfileScreen extends ConsumerStatefulWidget {
-  const ProfileScreen({super.key});
+  const ProfileScreen({super.key, this.inShell = false});
+
+  /// 是否嵌入底部导航壳。
+  final bool inShell;
 
   @override
   ConsumerState<ProfileScreen> createState() => _ProfileScreenState();
@@ -180,6 +183,14 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                   const SizedBox(height: 12),
                   Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
                 ],
+                const SizedBox(height: 16),
+                ListTile(
+                  leading: const Icon(Icons.mail_outline),
+                  title: const Text('好友申请'),
+                  subtitle: const Text('查看、接受或拒绝好友申请'),
+                  onTap: () => context.push(AppRoutes.friendRequests),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                ),
                 const SizedBox(height: 24),
                 FilledButton(
                   onPressed: _isLoading ? null : _save,

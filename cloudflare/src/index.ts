@@ -44,13 +44,14 @@ export default {
       return new Response(null, { status: 204, headers: CORS_HEADERS });
     }
     const url = new URL(request.url);
+    const pathname = url.pathname.replace(/\/$/, "") || "/";
     const secret = env.JWT_SECRET || "dev-secret-change-in-production";
 
-    if (url.pathname === "/" || url.pathname === "/health") {
+    if (pathname === "/" || pathname === "/health") {
       return jsonResponse({ ok: true });
     }
 
-    if (url.pathname === "/auth/register" && request.method === "POST") {
+    if (pathname === "/auth/register" && request.method === "POST") {
       try {
         const body = (await request.json()) as { username?: string; password?: string; displayName?: string };
         const username = String(body?.username ?? "").trim().toLowerCase();
@@ -80,7 +81,7 @@ export default {
       }
     }
 
-    if (url.pathname === "/auth/login" && request.method === "POST") {
+    if (pathname === "/auth/login" && request.method === "POST") {
       try {
         const body = (await request.json()) as { username?: string; password?: string };
         const username = String(body?.username ?? "").trim().toLowerCase();
@@ -114,7 +115,7 @@ export default {
       }
     }
 
-    if (url.pathname === "/auth/me" && request.method === "GET") {
+    if (pathname === "/auth/me" && request.method === "GET") {
       const userId = await getUserIdFromRequest(request, secret);
       if (!userId) return jsonResponse({ error: "未登录" }, 401);
       const row = await env.capslian_db.prepare(
@@ -126,7 +127,7 @@ export default {
       return jsonResponse({ user: row });
     }
 
-    if (url.pathname === "/users/me" && request.method === "PATCH") {
+    if (pathname === "/users/me" && request.method === "PATCH") {
       const userId = await getUserIdFromRequest(request, secret);
       if (!userId) return jsonResponse({ error: "未登录" }, 401);
       try {
@@ -159,7 +160,7 @@ export default {
       }
     }
 
-    if (url.pathname === "/posts" && request.method === "GET") {
+    if (pathname === "/posts" && request.method === "GET") {
       const limit = Math.min(Number(url.searchParams.get("limit")) || 20, 100);
       const cursor = url.searchParams.get("cursor") ?? "";
       const userId = await getUserIdFromRequest(request, secret);
@@ -206,7 +207,7 @@ export default {
       return jsonResponse({ posts, nextCursor });
     }
 
-    if (url.pathname === "/posts" && request.method === "POST") {
+    if (pathname === "/posts" && request.method === "POST") {
       const userId = await getUserIdFromRequest(request, secret);
       if (!userId) return jsonResponse({ error: "未登录" }, 401);
       try {
@@ -232,7 +233,7 @@ export default {
       }
     }
 
-    const postIdMatch = url.pathname.match(/^\/posts\/([^/]+)$/);
+    const postIdMatch = pathname.match(/^\/posts\/([^/]+)$/);
     if (postIdMatch) {
       const id = postIdMatch[1];
       if (request.method === "GET") {
@@ -268,7 +269,7 @@ export default {
       }
     }
 
-    if (url.pathname === "/upload" && request.method === "POST") {
+    if (pathname === "/upload" && request.method === "POST") {
       const userId = await getUserIdFromRequest(request, secret);
       if (!userId) return jsonResponse({ error: "未登录" }, 401);
       const contentType = request.headers.get("Content-Type") ?? "";
@@ -287,7 +288,7 @@ export default {
       }
     }
 
-    const likePostMatch = url.pathname.match(/^\/posts\/([^/]+)\/like$/);
+    const likePostMatch = pathname.match(/^\/posts\/([^/]+)\/like$/);
     if (likePostMatch) {
       const postId = likePostMatch[1];
       const userId = await getUserIdFromRequest(request, secret);
@@ -304,7 +305,7 @@ export default {
       }
     }
 
-    const postLikesMatch = url.pathname.match(/^\/posts\/([^/]+)\/likes$/);
+    const postLikesMatch = pathname.match(/^\/posts\/([^/]+)\/likes$/);
     if (postLikesMatch && request.method === "GET") {
       const postId = postLikesMatch[1];
       const userId = await getUserIdFromRequest(request, secret);
@@ -313,7 +314,7 @@ export default {
       return jsonResponse({ count: count?.c ?? 0, liked: !!liked });
     }
 
-    const commentsPostMatch = url.pathname.match(/^\/posts\/([^/]+)\/comments$/);
+    const commentsPostMatch = pathname.match(/^\/posts\/([^/]+)\/comments$/);
     if (commentsPostMatch) {
       const postId = commentsPostMatch[1];
       if (request.method === "GET") {
@@ -364,7 +365,7 @@ export default {
       }
     }
 
-    if (url.pathname === "/follows" && request.method === "POST") {
+    if (pathname === "/follows" && request.method === "POST") {
       const userId = await getUserIdFromRequest(request, secret);
       if (!userId) return jsonResponse({ error: "未登录" }, 401);
       const body = (await request.json()) as { following_id?: string };
@@ -374,7 +375,7 @@ export default {
       return jsonResponse({ followed: true });
     }
 
-    const unfollowMatch = url.pathname.match(/^\/follows\/([^/]+)$/);
+    const unfollowMatch = pathname.match(/^\/follows\/([^/]+)$/);
     if (unfollowMatch && request.method === "DELETE") {
       const followingId = unfollowMatch[1];
       const userId = await getUserIdFromRequest(request, secret);
@@ -383,7 +384,7 @@ export default {
       return jsonResponse({ followed: false });
     }
 
-    if (url.pathname === "/users/me/following" && request.method === "GET") {
+    if (pathname === "/users/me/following" && request.method === "GET") {
       const userId = await getUserIdFromRequest(request, secret);
       if (!userId) return jsonResponse({ error: "未登录" }, 401);
       const { results } = await env.capslian_db.prepare(
@@ -394,7 +395,7 @@ export default {
       return jsonResponse({ users: results });
     }
 
-    if (url.pathname === "/users/me/followers" && request.method === "GET") {
+    if (pathname === "/users/me/followers" && request.method === "GET") {
       const userId = await getUserIdFromRequest(request, secret);
       if (!userId) return jsonResponse({ error: "未登录" }, 401);
       const { results } = await env.capslian_db.prepare(
@@ -405,7 +406,133 @@ export default {
       return jsonResponse({ users: results });
     }
 
-    if (url.pathname === "/messages" && request.method === "GET") {
+    if (pathname === "/users/search" && request.method === "GET") {
+      const userId = await getUserIdFromRequest(request, secret);
+      if (!userId) return jsonResponse({ error: "未登录" }, 401);
+      const q = String(url.searchParams.get("q") ?? "").trim();
+      if (!q) return jsonResponse({ users: [] });
+      try {
+        const pattern = `%${q}%`;
+        const { results } = await env.capslian_db.prepare(
+          "SELECT id, username, display_name, avatar_url FROM users WHERE (username LIKE ? OR display_name LIKE ?) AND id != ? LIMIT 30"
+        )
+          .bind(pattern, pattern, userId)
+          .all();
+        return jsonResponse({ users: results });
+      } catch (e) {
+        console.error("users/search error:", e);
+        return jsonResponse({ error: "搜索失败，请稍后重试" }, 500);
+      }
+    }
+
+    if (pathname === "/friend-requests" && request.method === "GET") {
+      const userId = await getUserIdFromRequest(request, secret);
+      if (!userId) return jsonResponse({ error: "未登录" }, 401);
+      try {
+        const { results } = await env.capslian_db.prepare(
+          "SELECT fr.id, fr.requester_id, fr.target_id, fr.status, fr.created_at, u.username, u.display_name, u.avatar_url FROM friend_requests fr JOIN users u ON fr.requester_id = u.id WHERE fr.target_id = ? AND fr.status = 'pending' ORDER BY fr.created_at DESC"
+        )
+          .bind(userId)
+          .all();
+        return jsonResponse({ friend_requests: results });
+      } catch (e) {
+        console.error("friend-requests GET error:", e);
+        const msg = e && typeof (e as { message?: string }).message === "string" ? (e as { message: string }).message : String(e);
+        if (msg.includes("no such table") || msg.includes("friend_requests")) {
+          return jsonResponse({ error: "服务未就绪" }, 503);
+        }
+        return jsonResponse({ error: "获取失败" }, 500);
+      }
+    }
+
+    if (pathname === "/friend-requests" && request.method === "POST") {
+      const userId = await getUserIdFromRequest(request, secret);
+      if (!userId) return jsonResponse({ error: "未登录" }, 401);
+      let body: { target_id?: string };
+      try {
+        body = (await request.json()) as { target_id?: string };
+      } catch {
+        return jsonResponse({ error: "请求体无效" }, 400);
+      }
+      const targetId = String(body?.target_id ?? "").trim();
+      if (!targetId || targetId === userId) return jsonResponse({ error: "无效的 target_id" }, 400);
+      try {
+        const existing = await env.capslian_db.prepare(
+          "SELECT id, status FROM friend_requests WHERE requester_id = ? AND target_id = ?"
+        )
+          .bind(userId, targetId)
+          .first();
+        if (existing && typeof existing === "object") {
+          const status = (existing as { status: string }).status;
+          if (status === "pending") return jsonResponse({ error: "已发送过好友申请" }, 409);
+          if (status === "accepted") return jsonResponse({ error: "已是好友" }, 409);
+        }
+        const id = uuid();
+        await env.capslian_db.prepare(
+          "INSERT INTO friend_requests (id, requester_id, target_id, status) VALUES (?, ?, ?, 'pending')"
+        )
+          .bind(id, userId, targetId)
+          .run();
+        const row = await env.capslian_db.prepare(
+          "SELECT id, requester_id, target_id, status, created_at FROM friend_requests WHERE id = ?"
+        )
+          .bind(id)
+          .first();
+        return jsonResponse({ friend_request: row }, 201);
+      } catch (e) {
+        const msg = e && typeof (e as { message?: string }).message === "string" ? (e as { message: string }).message : String(e);
+        console.error("friend-requests POST error:", msg);
+        if (msg.includes("no such table") || msg.includes("friend_requests")) {
+          return jsonResponse({ error: "服务未就绪，请先执行数据库迁移：wrangler d1 migrations apply capslian-db --remote" }, 503);
+        }
+        return jsonResponse({ error: "发送失败，请稍后重试" }, 500);
+      }
+    }
+
+    const friendRequestAcceptMatch = pathname.match(/^\/friend-requests\/([^/]+)\/accept$/);
+    if (friendRequestAcceptMatch && request.method === "POST") {
+      const requestId = friendRequestAcceptMatch[1];
+      const userId = await getUserIdFromRequest(request, secret);
+      if (!userId) return jsonResponse({ error: "未登录" }, 401);
+      try {
+        const row = await env.capslian_db.prepare(
+          "SELECT id, requester_id, target_id, status FROM friend_requests WHERE id = ? AND target_id = ? AND status = 'pending'"
+        )
+          .bind(requestId, userId)
+          .first();
+        if (!row || typeof row !== "object") return jsonResponse({ error: "申请不存在或已处理" }, 404);
+        const r = row as { requester_id: string; target_id: string };
+        await env.capslian_db.prepare("UPDATE friend_requests SET status = 'accepted' WHERE id = ?").bind(requestId).run();
+        await env.capslian_db.prepare("INSERT OR IGNORE INTO follows (follower_id, following_id) VALUES (?, ?)").bind(r.requester_id, r.target_id).run();
+        await env.capslian_db.prepare("INSERT OR IGNORE INTO follows (follower_id, following_id) VALUES (?, ?)").bind(r.target_id, r.requester_id).run();
+        return jsonResponse({ accepted: true });
+      } catch (e) {
+        console.error("friend-requests accept error:", e);
+        return jsonResponse({ error: "操作失败" }, 500);
+      }
+    }
+
+    const friendRequestRejectMatch = pathname.match(/^\/friend-requests\/([^/]+)\/reject$/);
+    if (friendRequestRejectMatch && request.method === "POST") {
+      const requestId = friendRequestRejectMatch[1];
+      const userId = await getUserIdFromRequest(request, secret);
+      if (!userId) return jsonResponse({ error: "未登录" }, 401);
+      try {
+        const row = await env.capslian_db.prepare(
+          "SELECT id FROM friend_requests WHERE id = ? AND target_id = ? AND status = 'pending'"
+        )
+          .bind(requestId, userId)
+          .first();
+        if (!row || typeof row !== "object") return jsonResponse({ error: "申请不存在或已处理" }, 404);
+        await env.capslian_db.prepare("UPDATE friend_requests SET status = 'rejected' WHERE id = ?").bind(requestId).run();
+        return jsonResponse({ rejected: true });
+      } catch (e) {
+        console.error("friend-requests reject error:", e);
+        return jsonResponse({ error: "操作失败" }, 500);
+      }
+    }
+
+    if (pathname === "/messages" && request.method === "GET") {
       const userId = await getUserIdFromRequest(request, secret);
       if (!userId) return jsonResponse({ error: "未登录" }, 401);
       const withUser = url.searchParams.get("with_user") ?? "";
@@ -438,7 +565,7 @@ export default {
       return jsonResponse({ conversations: withLast });
     }
 
-    if (url.pathname === "/messages" && request.method === "POST") {
+    if (pathname === "/messages" && request.method === "POST") {
       const userId = await getUserIdFromRequest(request, secret);
       if (!userId) return jsonResponse({ error: "未登录" }, 401);
       const body = (await request.json()) as { receiver_id?: string; content?: string };
@@ -451,7 +578,7 @@ export default {
       return jsonResponse({ message: row });
     }
 
-    const assetMatch = url.pathname.match(/^\/asset\/(.+)$/);
+    const assetMatch = pathname.match(/^\/asset\/(.+)$/);
     if (assetMatch && request.method === "GET") {
       const key = decodeURIComponent(assetMatch[1]);
       const obj = await env.ASSETS.get(key);
