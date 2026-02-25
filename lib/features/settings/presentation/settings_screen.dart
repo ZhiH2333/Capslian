@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../core/constants/layout_constants.dart';
+import '../../../core/router/app_router.dart';
 import '../../../core/theme/theme_mode_provider.dart';
 import '../../../shared/widgets/app_scaffold.dart';
 import '../../../shared/widgets/auto_leading_button.dart';
 
-/// 设置页：深色模式切换；个人中心/推送等占位。
+/// 设置页：深色模式、账号与隐私、推送通知。
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
 
@@ -45,14 +47,16 @@ class SettingsScreen extends ConsumerWidget {
             contentPadding: LayoutConstants.kListTileContentPadding,
             leading: const Icon(Icons.person_outline),
             title: const Text('账号与隐私'),
-            subtitle: const Text('（占位）'),
+            subtitle: const Text('编辑资料、退出登录'),
+            onTap: () => context.push(AppRoutes.settingsAccount),
           ),
           ListTile(
             minLeadingWidth: LayoutConstants.kListTileMinLeadingWidth,
             contentPadding: LayoutConstants.kListTileContentPadding,
             leading: const Icon(Icons.notifications_outlined),
             title: const Text('推送通知'),
-            subtitle: const Text('（占位，可选接入 APNs/FCM）'),
+            subtitle: const Text('FCM 推送说明与通知中心'),
+            onTap: () => context.push(AppRoutes.settingsPush),
           ),
         ],
       ),

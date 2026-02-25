@@ -16,8 +16,14 @@ import '../../features/direct/presentation/friend_requests_screen.dart';
 import '../../features/direct/presentation/user_search_screen.dart';
 import '../../features/discovery/presentation/explore_screen.dart';
 import '../../features/files/presentation/files_screen.dart';
+import '../../features/notifications/presentation/notifications_screen.dart';
 import '../../features/main_shell/presentation/main_shell_screen.dart';
+import '../../features/social/presentation/social_screen.dart';
+import '../../features/realms/data/models/realm_model.dart';
+import '../../features/realms/presentation/realm_detail_screen.dart';
 import '../../features/realms/presentation/realms_screen.dart';
+import '../../features/settings/presentation/account_privacy_screen.dart';
+import '../../features/settings/presentation/push_settings_screen.dart';
 import '../../features/settings/presentation/settings_screen.dart';
 
 /// 路由路径常量。
@@ -34,7 +40,12 @@ class AppRoutes {
   static const String friendRequests = '/friend-requests';
   static const String explore = '/explore';
   static const String realms = '/realms';
+  static String realmDetail(String id) => '/realms/$id';
   static const String files = '/files';
+  static const String notifications = '/notifications';
+  static const String social = '/social';
+  static const String settingsAccount = '/settings/account';
+  static const String settingsPush = '/settings/push';
   static const String direct = '/direct';
   static String directConversation(String peerId) => '/direct/$peerId';
   static const String chatRooms = '/chat';
@@ -102,6 +113,16 @@ GoRouter createAppRouter() {
             const SettingsScreen(),
       ),
       GoRoute(
+        path: AppRoutes.settingsAccount,
+        builder: (BuildContext context, GoRouterState state) =>
+            const AccountPrivacyScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.settingsPush,
+        builder: (BuildContext context, GoRouterState state) =>
+            const PushSettingsScreen(),
+      ),
+      GoRoute(
         path: AppRoutes.explore,
         builder: (BuildContext context, GoRouterState state) =>
             const ExploreScreen(),
@@ -112,9 +133,27 @@ GoRouter createAppRouter() {
             const RealmsScreen(),
       ),
       GoRoute(
+        path: '/realms/:id',
+        builder: (BuildContext context, GoRouterState state) {
+          final id = state.pathParameters['id'] ?? '';
+          final realm = state.extra as RealmModel?;
+          return RealmDetailScreen(realmId: id, initialRealm: realm);
+        },
+      ),
+      GoRoute(
         path: AppRoutes.files,
         builder: (BuildContext context, GoRouterState state) =>
             const FilesScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.notifications,
+        builder: (BuildContext context, GoRouterState state) =>
+            const NotificationsScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.social,
+        builder: (BuildContext context, GoRouterState state) =>
+            const SocialScreen(),
       ),
       GoRoute(
         path: '${AppRoutes.direct}/:peerId',

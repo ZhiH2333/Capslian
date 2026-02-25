@@ -12,6 +12,8 @@ import '../../../core/image/image_compression_service.dart';
 import '../../../core/router/app_router.dart';
 import '../../../shared/widgets/app_scaffold.dart';
 import '../../../shared/widgets/auto_leading_button.dart';
+import '../../files/data/files_repository.dart';
+import '../../files/providers/files_providers.dart';
 import '../providers/posts_providers.dart';
 
 /// 上传中单条：非 Web 用 path，Web 用 bytes+filename。
@@ -102,6 +104,7 @@ class _CreatePostScreenState extends ConsumerState<CreatePostScreen> {
           _uploadingEntries.removeWhere((e) => e.id == entry.id);
           _imageUrls.add(url);
         });
+        _confirmImageToFiles(url, name: name, size: compressedBytes.length);
       } catch (e) {
         if (mounted) {
           setState(() {
@@ -134,6 +137,8 @@ class _CreatePostScreenState extends ConsumerState<CreatePostScreen> {
         _uploadingEntries.removeWhere((e) => e.id == entry.id);
         _imageUrls.add(url);
       });
+      final displayName = xFile.name.isNotEmpty ? xFile.name : 'image.jpg';
+      _confirmImageToFiles(url, name: displayName, size: 0);
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -142,6 +147,16 @@ class _CreatePostScreenState extends ConsumerState<CreatePostScreen> {
         });
       }
     }
+  }
+
+  /// 将上传后的图片登记到「文件」列表，便于在文件界面查看；失败静默忽略。
+  Future<void> _confirmImageToFiles(String url, {required String name, int size = 0}) async {
+    try {
+      final filesRepo = ref.read(filesRepositoryProvider);
+      final key = FilesRepository.keyFromAssetUrl(url);
+      await filesRepo.confirmUpload(key: key, name: name, size: size, mimeType: 'image/jpeg');
+      ref.invalidate(filesListProvider);
+    } catch (_) {}
   }
 
   void _removeUploading(_UploadingEntry entry) {
@@ -169,6 +184,9 @@ class _CreatePostScreenState extends ConsumerState<CreatePostScreen> {
         _uploadingEntries.removeWhere((e) => e.id == entry.id);
         _imageUrls.add(url);
       });
+      final name = entry.filename ?? 'image.jpg';
+      final size = entry.bytes?.length ?? 0;
+      _confirmImageToFiles(url, name: name, size: size);
     } catch (e) {
       if (mounted) {
         setState(() => entry.error = e.toString().replaceFirst('Exception: ', ''));

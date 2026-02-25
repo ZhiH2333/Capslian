@@ -15,6 +15,12 @@ final postsListProvider = FutureProvider.family<PostsPageResult, PostsListKey>((
   return repo.fetchPosts(limit: key.limit, cursor: key.cursor);
 });
 
+/// 发现流帖子列表（分页）。
+final feedsListProvider = FutureProvider.family<PostsPageResult, PostsListKey>((ref, key) async {
+  final repo = ref.watch(postsRepositoryProvider);
+  return repo.fetchFeeds(limit: key.limit, cursor: key.cursor);
+});
+
 /// 单条帖子详情 provider。
 final postDetailProvider = FutureProvider.family<PostModel?, String>((ref, id) async {
   final repo = ref.watch(postsRepositoryProvider);

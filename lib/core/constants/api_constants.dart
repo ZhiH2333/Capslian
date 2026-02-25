@@ -35,6 +35,11 @@ class ApiConstants {
   static const String feeds = '/api/feeds';
   static const String realms = '/api/realms';
   static const String files = '/api/files';
+  static const String filesConfirm = '/api/files/confirm';
+  static String realmById(String id) => '$realms/$id';
+  static String realmJoin(String id) => '$realms/$id/join';
+  static String realmLeave(String id) => '$realms/$id/leave';
+  static String assetUrl(String key) => '$baseUrl/api/asset/${Uri.encodeComponent(key)}';
   static const String notificationsList = '/api/notifications';
   static const String notificationsRead = '/api/notifications/read';
   static const String notificationsSubscribe = '/api/notifications/subscribe';

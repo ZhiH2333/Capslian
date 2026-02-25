@@ -30,6 +30,19 @@ class PostsRepository {
     return PostsPageResult(posts: list, nextCursor: nextCursor);
   }
 
+  /// 发现流（与帖子列表结构一致，使用 /api/feeds）。
+  Future<PostsPageResult> fetchFeeds({int limit = 20, String? cursor}) async {
+    final query = <String, String>{'limit': limit.toString()};
+    if (cursor != null && cursor.isNotEmpty) query['cursor'] = cursor;
+    final uri = Uri.parse(ApiConstants.feeds).replace(queryParameters: query);
+    final response = await _dio.get<Map<String, dynamic>>(uri.toString());
+    final data = response.data;
+    if (data == null || data['posts'] is! List) return const PostsPageResult(posts: []);
+    final list = (data['posts'] as List).map((e) => PostModel.fromJson(e as Map<String, dynamic>)).toList();
+    final nextCursor = data['nextCursor'] as String?;
+    return PostsPageResult(posts: list, nextCursor: nextCursor);
+  }
+
   Future<PostModel> createPost({required String content, List<String>? imageUrls}) async {
     final response = await _dio.post<Map<String, dynamic>>(
       ApiConstants.posts,

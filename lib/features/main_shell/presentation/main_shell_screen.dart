@@ -19,8 +19,6 @@ import '../../profile/presentation/profile_screen.dart';
 class _RailStyle {
   _RailStyle._();
   static const double railWidth = 250;
-  static const Color backgroundDark = Color(0xFF1A1B1E);
-  static const Color selectedPill = Color(0xFF373E4D);
   static const double pillRadius = 24;
   static const double itemPaddingH = 16;
   static const double itemPaddingV = 12;
@@ -93,8 +91,9 @@ class _MainShellScreenState extends ConsumerState<MainShellScreen> {
           final topPadding = padding.top > 0
               ? padding.top
               : (isDesktop ? 28.0 : 0.0);
+          final railBg = Theme.of(context).colorScheme.surface;
           return Container(
-            color: _RailStyle.backgroundDark,
+            color: railBg,
             child: Padding(
               padding: EdgeInsets.only(
                 top: topPadding,
@@ -186,8 +185,10 @@ class _StyledNavigationRail extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final textColor = const Color(0xFFE4E4E7);
-    final iconColor = const Color(0xFFE4E4E7);
+    final colorScheme = Theme.of(context).colorScheme;
+    final textColor = colorScheme.onSurface;
+    final iconColor = colorScheme.onSurface;
+    final selectedPillColor = colorScheme.surfaceContainerHighest;
     return SizedBox(
       width: _RailStyle.railWidth,
       child: Column(
@@ -230,9 +231,7 @@ class _StyledNavigationRail extends StatelessWidget {
                       vertical: _RailStyle.itemPaddingV,
                     ),
                     decoration: BoxDecoration(
-                      color: selected
-                          ? _RailStyle.selectedPill
-                          : Colors.transparent,
+                      color: selected ? selectedPillColor : Colors.transparent,
                       borderRadius: BorderRadius.circular(
                         _RailStyle.pillRadius,
                       ),

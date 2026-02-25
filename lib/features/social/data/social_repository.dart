@@ -126,6 +126,22 @@ class SocialRepository {
     return List<Map<String, dynamic>>.from(data['friends'] as List);
   }
 
+  /// 获取当前用户关注的用户列表。
+  Future<List<Map<String, dynamic>>> getFollowing() async {
+    final response = await _dio.get<Map<String, dynamic>>(ApiConstants.usersMeFollowing);
+    final data = response.data;
+    if (data == null || data['users'] is! List) return [];
+    return List<Map<String, dynamic>>.from(data['users'] as List);
+  }
+
+  /// 获取当前用户的粉丝列表。
+  Future<List<Map<String, dynamic>>> getFollowers() async {
+    final response = await _dio.get<Map<String, dynamic>>(ApiConstants.usersMeFollowers);
+    final data = response.data;
+    if (data == null || data['users'] is! List) return [];
+    return List<Map<String, dynamic>>.from(data['users'] as List);
+  }
+
   /// 删除好友（解除好友关系）。
   Future<void> removeFriend(String friendUserId) async {
     await _dio.delete<Map<String, dynamic>>('${ApiConstants.usersMeFriends}/$friendUserId');
