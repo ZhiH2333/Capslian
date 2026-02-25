@@ -1,7 +1,8 @@
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart' show defaultTargetPlatform, TargetPlatform;
+import 'package:flutter/foundation.dart'
+    show defaultTargetPlatform, TargetPlatform;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -13,6 +14,21 @@ import '../../auth/providers/auth_providers.dart';
 import '../../../chat/presentation/chat_rooms_list_screen.dart';
 import '../../posts/presentation/home_screen.dart';
 import '../../profile/presentation/profile_screen.dart';
+
+/// 宽屏左侧导航栏样式常量
+class _RailStyle {
+  _RailStyle._();
+  static const double railWidth = 250;
+  static const Color backgroundDark = Color(0xFF1A1B1E);
+  static const Color selectedPill = Color(0xFF373E4D);
+  static const double pillRadius = 24;
+  static const double itemPaddingH = 16;
+  static const double itemPaddingV = 12;
+  static const double itemSpacing = 8;
+  static const double groupSpacing = 24;
+  /// Molian 标题左侧留白
+  static const double titlePaddingLeft = 24;
+}
 
 /// 主壳：窄屏底部 NavigationBar，宽屏（≥768）左侧 NavigationRail；「浏览、聊天、个人」。
 class MainShellScreen extends ConsumerStatefulWidget {
@@ -26,9 +42,21 @@ class _MainShellScreenState extends ConsumerState<MainShellScreen> {
   int _currentIndex = 0;
 
   static const List<_NavItem> _navItems = <_NavItem>[
-    _NavItem(label: '浏览', icon: Icons.explore_outlined, selectedIcon: Icons.explore),
-    _NavItem(label: '聊天', icon: Icons.chat_bubble_outline, selectedIcon: Icons.chat_bubble),
-    _NavItem(label: '个人', icon: Icons.person_outline, selectedIcon: Icons.person),
+    _NavItem(
+      label: '浏览',
+      icon: Icons.explore_outlined,
+      selectedIcon: Icons.explore,
+    ),
+    _NavItem(
+      label: '聊天',
+      icon: Icons.chat_bubble_outline,
+      selectedIcon: Icons.chat_bubble,
+    ),
+    _NavItem(
+      label: '个人',
+      icon: Icons.person_outline,
+      selectedIcon: Icons.person,
+    ),
   ];
 
   void _onDestinationSelected(int index, UserModel? user) {
@@ -57,14 +85,16 @@ class _MainShellScreenState extends ConsumerState<MainShellScreen> {
           ],
         );
         if (useRail) {
-          final colorScheme = Theme.of(context).colorScheme;
           final padding = MediaQuery.viewPaddingOf(context);
-          final isDesktop = defaultTargetPlatform == TargetPlatform.macOS ||
+          final isDesktop =
+              defaultTargetPlatform == TargetPlatform.macOS ||
               defaultTargetPlatform == TargetPlatform.windows ||
               defaultTargetPlatform == TargetPlatform.linux;
-          final topPadding = padding.top > 0 ? padding.top : (isDesktop ? 28.0 : 0.0);
+          final topPadding = padding.top > 0
+              ? padding.top
+              : (isDesktop ? 28.0 : 0.0);
           return Container(
-            color: colorScheme.surfaceContainer,
+            color: _RailStyle.backgroundDark,
             child: Padding(
               padding: EdgeInsets.only(
                 top: topPadding,
@@ -74,25 +104,21 @@ class _MainShellScreenState extends ConsumerState<MainShellScreen> {
               ),
               child: Row(
                 children: <Widget>[
-                  NavigationRail(
-                    backgroundColor: Colors.transparent,
-                    selectedIndex: _currentIndex,
-                    onDestinationSelected: (int index) => _onDestinationSelected(index, user),
-                    labelType: NavigationRailLabelType.all,
-                    destinations: _navItems
-                        .map(
-                          (_NavItem item) => NavigationRailDestination(
-                            icon: Icon(item.icon),
-                            selectedIcon: Icon(item.selectedIcon),
-                            label: Text(item.label),
-                          ),
-                        )
-                        .toList(),
+                  _StyledNavigationRail(
+                    currentIndex: _currentIndex,
+                    onDestinationSelected: (int index) =>
+                        _onDestinationSelected(index, user),
+                    navItems: _navItems,
                   ),
                   Expanded(
-                    child: ClipRRect(
-                      borderRadius: const BorderRadius.only(topLeft: Radius.circular(16)),
-                      child: body,
+                    child: Container(
+                      color: Theme.of(context).scaffoldBackgroundColor,
+                      child: ClipRRect(
+                        borderRadius: const BorderRadius.only(
+                          topLeft: Radius.circular(16),
+                        ),
+                        child: body,
+                      ),
                     ),
                   ),
                 ],
@@ -109,14 +135,14 @@ class _MainShellScreenState extends ConsumerState<MainShellScreen> {
           ),
           bottomNavigationBar: _ConditionalBottomNav(
             currentIndex: _currentIndex,
-            onDestinationSelected: (int index) => _onDestinationSelected(index, user),
+            onDestinationSelected: (int index) =>
+                _onDestinationSelected(index, user),
             navItems: _navItems,
           ),
         );
       },
-      loading: () => const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
-      ),
+      loading: () =>
+          const Scaffold(body: Center(child: CircularProgressIndicator())),
       error: (_, __) => Scaffold(
         body: Center(
           child: Column(
@@ -136,10 +162,106 @@ class _MainShellScreenState extends ConsumerState<MainShellScreen> {
 }
 
 class _NavItem {
-  const _NavItem({required this.label, required this.icon, required this.selectedIcon});
+  const _NavItem({
+    required this.label,
+    required this.icon,
+    required this.selectedIcon,
+  });
   final String label;
   final IconData icon;
   final IconData selectedIcon;
+}
+
+/// 宽屏左侧导航栏
+class _StyledNavigationRail extends StatelessWidget {
+  const _StyledNavigationRail({
+    required this.currentIndex,
+    required this.onDestinationSelected,
+    required this.navItems,
+  });
+
+  final int currentIndex;
+  final void Function(int index) onDestinationSelected;
+  final List<_NavItem> navItems;
+
+  @override
+  Widget build(BuildContext context) {
+    final textColor = const Color(0xFFE4E4E7);
+    final iconColor = const Color(0xFFE4E4E7);
+    return SizedBox(
+      width: _RailStyle.railWidth,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          Padding(
+            padding: const EdgeInsets.fromLTRB(
+              _RailStyle.titlePaddingLeft,
+              _RailStyle.groupSpacing,
+              _RailStyle.itemPaddingH,
+              _RailStyle.itemSpacing,
+            ),
+            child: Text(
+              'Molian',
+              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                color: textColor,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          const SizedBox(height: _RailStyle.groupSpacing),
+          ...navItems.asMap().entries.map((MapEntry<int, _NavItem> entry) {
+            final index = entry.key;
+            final item = entry.value;
+            final selected = index == currentIndex;
+            return Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: _RailStyle.itemPaddingH,
+                vertical: _RailStyle.itemSpacing / 2,
+              ),
+              child: Material(
+                color: Colors.transparent,
+                borderRadius: BorderRadius.circular(_RailStyle.pillRadius),
+                child: InkWell(
+                  onTap: () => onDestinationSelected(index),
+                  borderRadius: BorderRadius.circular(_RailStyle.pillRadius),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: _RailStyle.itemPaddingH,
+                      vertical: _RailStyle.itemPaddingV,
+                    ),
+                    decoration: BoxDecoration(
+                      color: selected
+                          ? _RailStyle.selectedPill
+                          : Colors.transparent,
+                      borderRadius: BorderRadius.circular(
+                        _RailStyle.pillRadius,
+                      ),
+                    ),
+                    child: Row(
+                      children: <Widget>[
+                        Icon(
+                          selected ? item.selectedIcon : item.icon,
+                          size: LayoutConstants.kIconSizeMedium,
+                          color: iconColor,
+                        ),
+                        const SizedBox(width: 12),
+                        Text(
+                          item.label,
+                          style: Theme.of(
+                            context,
+                          ).textTheme.labelLarge?.copyWith(color: textColor),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            );
+          }),
+        ],
+      ),
+    );
+  }
 }
 
 /// 窄屏底部导航：毛玻璃、圆角、透明底、弱阴影。
