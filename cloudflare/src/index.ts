@@ -30,19 +30,15 @@ export default {
 };
 
 /**
- * 聊天室 Durable Object：
- *   - 接受 WebSocket（URL 带 token），按用户维护连接
- *   - 支持 1:1 DM（type: "dm"）
- *   - 支持房间订阅（type: "messages.subscribe" / "messages.unsubscribe"）
- *   - 收到 HTTP POST /broadcast/:roomId 时向所有订阅者推送消息
- *   - 支持输入状态（type: "messages.typing"）房间内广播
+ * 聊天室 Durable Object（Hibernation API 版本）：
+ *   - 接受 WebSocket（URL 带 token），用 userId 作为 tag
+ *   - 收到 HTTP POST /broadcast/:roomId 时，查询 D1 获取房间成员，
+ *     通过 ctx.getWebSockets(userId) 向所有在线成员推送消息
+ *   - 不使用内存 Map（DO 休眠后内存会被清除，必须依赖 Hibernation API）
+ *   - 支持 ping/pong 心跳
+ *   - 支持输入状态（messages.typing）
  */
 export class ChatRoom implements DurableObject {
-  private wsToUser = new Map<WebSocket, string>();
-  private userToWs = new Map<string, WebSocket>();
-  /** 房间订阅：roomId → 订阅的 WebSocket 集合 */
-  private roomSubscriptions = new Map<string, Set<WebSocket>>();
-
   constructor(private ctx: DurableObjectState, private env: Env) {}
 
   async fetch(request: Request): Promise<Response> {
@@ -52,7 +48,7 @@ export class ChatRoom implements DurableObject {
     if (request.method === "POST" && url.pathname.startsWith("/broadcast/")) {
       const roomId = decodeURIComponent(url.pathname.replace("/broadcast/", ""));
       const payload = await request.json() as Record<string, unknown>;
-      this.broadcastToRoom(roomId, payload);
+      await this.broadcastToRoom(roomId, payload);
       return Response.json({ ok: true });
     }
 
@@ -64,14 +60,14 @@ export class ChatRoom implements DurableObject {
         headers: { "Content-Type": "application/json" },
       });
     }
-    const payload = await verifyJwt(token, secret);
-    if (!payload?.sub) {
+    const jwtPayload = await verifyJwt(token, secret);
+    if (!jwtPayload?.sub) {
       return new Response(JSON.stringify({ error: "token 无效" }), {
         status: 401,
         headers: { "Content-Type": "application/json" },
       });
     }
-    const userId = payload.sub;
+    const userId = jwtPayload.sub;
     const upgrade = request.headers.get("Upgrade");
     if (upgrade !== "websocket") {
       return new Response(JSON.stringify({ message: "ChatRoom WS" }), {
@@ -81,9 +77,8 @@ export class ChatRoom implements DurableObject {
     }
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair) as [WebSocket, WebSocket];
+    // 使用 Hibernation API：tag = userId，DO 休眠后仍可通过 getWebSockets(userId) 找到连接
     this.ctx.acceptWebSocket(server, [userId]);
-    this.userToWs.set(userId, server);
-    this.wsToUser.set(server, userId);
     return new Response(null, {
       status: 101,
       webSocket: client,
@@ -92,13 +87,13 @@ export class ChatRoom implements DurableObject {
   }
 
   async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
-    const userId = this.wsToUser.get(ws);
+    // Hibernation API：通过 getTags 获取 userId，不依赖内存 Map
+    const tags = this.ctx.getTags(ws);
+    const userId = tags?.[0];
     if (!userId) return;
     const raw = typeof message === "string" ? message : new TextDecoder().decode(message);
     let data: {
       type?: string;
-      to?: string;
-      content?: string;
       chat_room_id?: string;
       is_typing?: boolean;
     };
@@ -107,123 +102,80 @@ export class ChatRoom implements DurableObject {
     } catch {
       return;
     }
-
     switch (data.type) {
-      case "dm":
-        await this.handleDm(ws, userId, data as { to?: string; content?: string });
-        break;
-      case "messages.subscribe":
-        this.handleSubscribe(ws, data.chat_room_id ?? "");
-        break;
-      case "messages.unsubscribe":
-        this.handleUnsubscribe(ws, data.chat_room_id ?? "");
-        break;
-      case "messages.typing":
-        this.handleTyping(ws, userId, data.chat_room_id ?? "", data.is_typing ?? true);
-        break;
       case "ping":
         ws.send(JSON.stringify({ type: "pong" }));
         break;
+      case "messages.typing":
+        await this.handleTyping(userId, data.chat_room_id ?? "", data.is_typing ?? true);
+        break;
+      // subscribe/unsubscribe 不再需要，保留以兼容旧客户端，但为 no-op
+      case "messages.subscribe":
+      case "messages.unsubscribe":
+        break;
     }
   }
 
-  private async handleDm(
-    ws: WebSocket,
-    userId: string,
-    data: { to?: string; content?: string }
-  ): Promise<void> {
-    const toId = String(data.to ?? "").trim();
-    const content = String(data.content ?? "").trim();
-    if (!toId || !content) return;
-    const id = crypto.randomUUID();
+  /**
+   * 向指定房间的所有在线成员广播消息。
+   * 每次广播都查询 D1 获取最新成员列表，再通过 Hibernation API 找到在线连接。
+   * 即使 DO 重启或休眠过，也能正确广播。
+   */
+  private async broadcastToRoom(roomId: string, payload: Record<string, unknown>): Promise<void> {
     try {
-      await this.env.molian_db
-        .prepare("INSERT INTO messages (id, sender_id, receiver_id, content, read) VALUES (?, ?, ?, ?, 0)")
-        .bind(id, userId, toId, content)
-        .run();
+      const { results } = await this.env.molian_db
+        .prepare("SELECT user_id FROM chat_room_members WHERE room_id = ?")
+        .bind(roomId)
+        .all();
+      const msg = JSON.stringify(payload);
+      for (const row of results as { user_id: string }[]) {
+        // getWebSockets(tag) 返回该 userId 对应的所有活跃 WebSocket（Hibernation API）
+        const sockets = this.ctx.getWebSockets(row.user_id);
+        for (const ws of sockets) {
+          try {
+            ws.send(msg);
+          } catch (_) {
+            // 连接已断开，忽略
+          }
+        }
+      }
     } catch (e) {
-      console.error("ChatRoom D1 insert message error:", e);
+      console.error("broadcastToRoom error:", e);
     }
-    const created_at = new Date().toISOString();
-    const payloadStr = JSON.stringify({
-      type: "dm",
-      id,
-      sender_id: userId,
-      receiver_id: toId,
-      content,
-      created_at,
-      read: 0,
-    });
-    const peerWs = this.userToWs.get(toId);
-    if (peerWs && peerWs.readyState === WebSocket.OPEN) {
-      peerWs.send(payloadStr);
-    }
-    ws.send(payloadStr);
   }
 
-  private handleSubscribe(ws: WebSocket, roomId: string): void {
+  /** 向房间内其他所有在线成员广播输入状态。 */
+  private async handleTyping(userId: string, roomId: string, isTyping: boolean): Promise<void> {
     if (!roomId) return;
-    if (!this.roomSubscriptions.has(roomId)) {
-      this.roomSubscriptions.set(roomId, new Set());
-    }
-    this.roomSubscriptions.get(roomId)!.add(ws);
-  }
-
-  private handleUnsubscribe(ws: WebSocket, roomId: string): void {
-    if (!roomId) return;
-    this.roomSubscriptions.get(roomId)?.delete(ws);
-  }
-
-  private handleTyping(
-    ws: WebSocket,
-    userId: string,
-    roomId: string,
-    isTyping: boolean
-  ): void {
-    if (!roomId) return;
-    const subscribers = this.roomSubscriptions.get(roomId);
-    if (!subscribers) return;
     const payload = JSON.stringify({
       type: "messages.typing",
       chat_room_id: roomId,
       user_id: userId,
       is_typing: isTyping,
     });
-    for (const sub of subscribers) {
-      if (sub !== ws && sub.readyState === WebSocket.OPEN) {
-        sub.send(payload);
+    try {
+      const { results } = await this.env.molian_db
+        .prepare("SELECT user_id FROM chat_room_members WHERE room_id = ? AND user_id != ?")
+        .bind(roomId, userId)
+        .all();
+      for (const row of results as { user_id: string }[]) {
+        const sockets = this.ctx.getWebSockets(row.user_id);
+        for (const ws of sockets) {
+          try {
+            ws.send(payload);
+          } catch (_) {}
+        }
       }
+    } catch (e) {
+      console.error("handleTyping error:", e);
     }
   }
 
-  /** 向指定房间的所有订阅者广播消息。 */
-  broadcastToRoom(roomId: string, payload: Record<string, unknown>): void {
-    const subscribers = this.roomSubscriptions.get(roomId);
-    if (!subscribers) return;
-    const msg = JSON.stringify(payload);
-    for (const ws of subscribers) {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(msg);
-      }
-    }
+  async webSocketClose(_ws: WebSocket): Promise<void> {
+    // Hibernation API 自动管理连接生命周期，无需手动清理内存 Map
   }
 
-  async webSocketClose(ws: WebSocket): Promise<void> {
-    this.cleanupWs(ws);
-  }
-
-  async webSocketError(ws: WebSocket): Promise<void> {
-    this.cleanupWs(ws);
-  }
-
-  private cleanupWs(ws: WebSocket): void {
-    const userId = this.wsToUser.get(ws);
-    if (userId) {
-      if (this.userToWs.get(userId) === ws) this.userToWs.delete(userId);
-      this.wsToUser.delete(ws);
-    }
-    for (const subs of this.roomSubscriptions.values()) {
-      subs.delete(ws);
-    }
+  async webSocketError(_ws: WebSocket): Promise<void> {
+    // 同上
   }
 }
