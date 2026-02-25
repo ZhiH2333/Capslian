@@ -24,16 +24,31 @@ class RoomMessageList extends ConsumerStatefulWidget {
   ConsumerState<RoomMessageList> createState() => _RoomMessageListState();
 }
 
-class _RoomMessageListState extends ConsumerState<RoomMessageList> {
+class _RoomMessageListState extends ConsumerState<RoomMessageList>
+    with SingleTickerProviderStateMixin {
   final ScrollController _scrollController = ScrollController();
   bool _isLoadingMore = false;
   bool _showScrollToBottom = false;
+
+  /// 水平滑动偏移（0 ~ _kMaxSlide），驱动时间戳显示。
+  final ValueNotifier<double> _slideOffsetNotifier = ValueNotifier(0.0);
+  late final AnimationController _snapBackController;
+  double _snapStartValue = 0;
+
+  static const double _kMaxSlide = 72.0;
 
   @override
   void initState() {
     super.initState();
     _scrollController.addListener(_onScroll);
     WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
+    _snapBackController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 220),
+    )..addListener(() {
+        _slideOffsetNotifier.value =
+            _snapStartValue * (1 - _snapBackController.value);
+      });
   }
 
   @override
@@ -88,7 +103,21 @@ class _RoomMessageListState extends ConsumerState<RoomMessageList> {
   void dispose() {
     _scrollController.removeListener(_onScroll);
     _scrollController.dispose();
+    _slideOffsetNotifier.dispose();
+    _snapBackController.dispose();
     super.dispose();
+  }
+
+  void _handleHorizontalDragUpdate(DragUpdateDetails details) {
+    _snapBackController.stop();
+    final delta = -details.delta.dx;
+    _slideOffsetNotifier.value =
+        (_slideOffsetNotifier.value + delta).clamp(0.0, _kMaxSlide);
+  }
+
+  void _handleHorizontalDragEnd(DragEndDetails _) {
+    _snapStartValue = _slideOffsetNotifier.value;
+    _snapBackController.forward(from: 0);
   }
 
   @override
@@ -96,37 +125,43 @@ class _RoomMessageListState extends ConsumerState<RoomMessageList> {
     final items = _buildGroupedItems(widget.messages);
     return Stack(
       children: [
-        ListView.builder(
-          controller: _scrollController,
-          padding: const EdgeInsets.symmetric(vertical: 8),
-          itemCount: items.length + (_isLoadingMore ? 1 : 0),
-          itemBuilder: (BuildContext ctx, int i) {
-            if (_isLoadingMore && i == 0) {
-              return const Padding(
-                padding: EdgeInsets.all(8),
-                child: Center(
-                  child: SizedBox(
-                    width: 24,
-                    height: 24,
-                    child: CircularProgressIndicator(strokeWidth: 2),
+        GestureDetector(
+          behavior: HitTestBehavior.translucent,
+          onHorizontalDragUpdate: _handleHorizontalDragUpdate,
+          onHorizontalDragEnd: _handleHorizontalDragEnd,
+          child: ListView.builder(
+            controller: _scrollController,
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            itemCount: items.length + (_isLoadingMore ? 1 : 0),
+            itemBuilder: (BuildContext ctx, int i) {
+              if (_isLoadingMore && i == 0) {
+                return const Padding(
+                  padding: EdgeInsets.all(8),
+                  child: Center(
+                    child: SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
                   ),
-                ),
+                );
+              }
+              final index = _isLoadingMore ? i - 1 : i;
+              final item = items[index];
+              if (item.isDateHeader) {
+                return _DateHeader(label: item.dateLabel!);
+              }
+              return MessageItem(
+                key: ValueKey('msg-${item.message!.nonce ?? item.message!.id}'),
+                message: item.message!,
+                isCurrentUser: item.message!.senderId == widget.currentUserId,
+                isFirstInGroup: item.isFirstInGroup,
+                isLastInGroup: item.isLastInGroup,
+                onAction: widget.onAction,
+                slideOffsetNotifier: _slideOffsetNotifier,
               );
-            }
-            final index = _isLoadingMore ? i - 1 : i;
-            final item = items[index];
-            if (item.isDateHeader) {
-              return _DateHeader(label: item.dateLabel!);
-            }
-            return MessageItem(
-              key: ValueKey('msg-${item.message!.nonce ?? item.message!.id}'),
-              message: item.message!,
-              isCurrentUser: item.message!.senderId == widget.currentUserId,
-              isFirstInGroup: item.isFirstInGroup,
-              isLastInGroup: item.isLastInGroup,
-              onAction: widget.onAction,
-            );
-          },
+            },
+          ),
         ),
         if (_showScrollToBottom)
           Positioned(

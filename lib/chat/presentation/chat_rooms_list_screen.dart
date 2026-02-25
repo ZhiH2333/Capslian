@@ -7,6 +7,7 @@ import '../../features/auth/providers/auth_providers.dart';
 import '../../features/direct/providers/chat_providers.dart';
 import '../../features/social/providers/social_providers.dart';
 import '../data/models/chat_room_model.dart';
+import '../data/models/local_chat_message.dart';
 import '../pods/chat_room.dart';
 
 /// 聊天 Tab 页：会话列表 + 好友列表。
@@ -175,36 +176,27 @@ class _FriendsTabState extends ConsumerState<_FriendsTab> {
   Future<void> _openChatWithFriend(String friendId, String friendName) async {
     if (friendId.isEmpty) return;
     final roomNotifier = ref.read(chatRoomListProvider.notifier);
-    final room = await roomNotifier.fetchOrCreateDirectRoom(friendId);
-    if (!mounted) return;
-    if (room != null) {
+    try {
+      final room = await roomNotifier.fetchOrCreateDirectRoom(friendId);
+      if (!mounted) return;
       context.push('/chat/${room.id}', extra: room);
-      return;
-    }
-    await showDialog<void>(
-      context: context,
-      builder: (BuildContext ctx) => AlertDialog(
-        title: const Text('无法发起会话'),
-        content: const Text(
-          '请稍后重试。若后端未部署 messager 接口，可尝试从「会话」进入已有私信。',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('确定'),
-          ),
+    } catch (e) {
+      if (!mounted) return;
+      final errorMessage = e.toString().replaceFirst('Exception: ', '');
+      await showDialog<void>(
+        context: context,
+        builder: (BuildContext ctx) => AlertDialog(
+          title: const Text('无法发起会话'),
+          content: Text(errorMessage),
+          actions: [
             FilledButton(
-            onPressed: () {
-              Navigator.of(ctx).pop();
-              context.push(
-                '${AppRoutes.direct}/$friendId?peerName=${Uri.encodeComponent(friendName)}',
-              );
-            },
-            child: const Text('使用旧版私信'),
-          ),
-        ],
-      ),
-    );
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('确定'),
+            ),
+          ],
+        ),
+      );
+    }
   }
 
   @override
@@ -294,28 +286,135 @@ class _FriendsTabState extends ConsumerState<_FriendsTab> {
   }
 }
 
-class _RoomTile extends StatelessWidget {
+/// 会话列表单项，DM 显示最新消息预览，群组显示成员数。
+class _RoomTile extends ConsumerWidget {
   const _RoomTile({required this.room});
+
+  final ChatRoom room;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    if (room.isDirect) {
+      return _DirectRoomTile(room: room);
+    }
+    return _GroupRoomTile(room: room);
+  }
+}
+
+/// DM 会话行：头像 + 对方名称（右上角时间）+ 最新消息预览。
+class _DirectRoomTile extends ConsumerWidget {
+  const _DirectRoomTile({required this.room});
+
+  final ChatRoom room;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final lastMsgAsync = ref.watch(roomLastMessageProvider(room.id));
+    final lastMsg = lastMsgAsync.valueOrNull;
+    final preview = _buildPreview(lastMsg);
+    final timeStr = lastMsg?.createdAt != null
+        ? _formatConvTime(lastMsg!.createdAt!)
+        : '';
+    return InkWell(
+      onTap: () => context.push('/chat/${room.id}', extra: room),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            _RoomAvatar(room: room),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          room.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context)
+                              .textTheme
+                              .titleSmall
+                              ?.copyWith(fontWeight: FontWeight.w600),
+                        ),
+                      ),
+                      if (timeStr.isNotEmpty) ...[
+                        const SizedBox(width: 8),
+                        Text(
+                          timeStr,
+                          style: Theme.of(context)
+                              .textTheme
+                              .labelSmall
+                              ?.copyWith(
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .onSurfaceVariant,
+                              ),
+                        ),
+                      ],
+                    ],
+                  ),
+                  if (preview.isNotEmpty) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      preview,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: Theme.of(context)
+                                .colorScheme
+                                .onSurfaceVariant,
+                          ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _buildPreview(LocalChatMessage? msg) {
+    if (msg == null) return '';
+    if (msg.isDeleted) return '[消息已撤回]';
+    if (msg.content.isNotEmpty) return msg.content;
+    if (msg.attachments.isNotEmpty) return '[图片]';
+    return '';
+  }
+
+  /// 格式化会话列表时间：今天显示 HH:mm，昨天显示「昨天」，更早显示 MM/dd。
+  String _formatConvTime(String iso) {
+    final dt = DateTime.tryParse(iso);
+    if (dt == null) return '';
+    final local = dt.toLocal();
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final msgDay = DateTime(local.year, local.month, local.day);
+    if (msgDay == today) {
+      return '${local.hour.toString().padLeft(2, '0')}:'
+          '${local.minute.toString().padLeft(2, '0')}';
+    }
+    if (today.difference(msgDay).inDays == 1) return '昨天';
+    return '${local.month.toString().padLeft(2, '0')}/'
+        '${local.day.toString().padLeft(2, '0')}';
+  }
+}
+
+/// 群组会话行：头像 + 名称 + 成员数。
+class _GroupRoomTile extends StatelessWidget {
+  const _GroupRoomTile({required this.room});
 
   final ChatRoom room;
 
   @override
   Widget build(BuildContext context) {
     return ListTile(
-      leading: CircleAvatar(
-        backgroundColor: Theme.of(context).colorScheme.secondaryContainer,
-        child: room.avatarUrl != null
-            ? ClipOval(
-                child: Image.network(
-                  room.avatarUrl!,
-                  width: 40,
-                  height: 40,
-                  fit: BoxFit.cover,
-                  errorBuilder: (context2, e, st) => _initials(context),
-                ),
-              )
-            : _initials(context),
-      ),
+      leading: _RoomAvatar(room: room),
       title: Text(
         room.name,
         maxLines: 1,
@@ -331,16 +430,44 @@ class _RoomTile extends StatelessWidget {
       onTap: () => context.push('/chat/${room.id}', extra: room),
     );
   }
+}
 
-  Widget _initials(BuildContext context) {
+/// 房间头像：优先显示 avatarUrl，否则显示名称首字母。
+class _RoomAvatar extends StatelessWidget {
+  const _RoomAvatar({required this.room});
+
+  final ChatRoom room;
+
+  @override
+  Widget build(BuildContext context) {
     final initial =
         room.name.isNotEmpty ? room.name[0].toUpperCase() : '?';
-    return Text(
-      initial,
-      style: TextStyle(
-        color: Theme.of(context).colorScheme.onSecondaryContainer,
-        fontWeight: FontWeight.bold,
-      ),
+    return CircleAvatar(
+      backgroundColor: Theme.of(context).colorScheme.secondaryContainer,
+      child: room.avatarUrl != null
+          ? ClipOval(
+              child: Image.network(
+                room.avatarUrl!,
+                width: 40,
+                height: 40,
+                fit: BoxFit.cover,
+                errorBuilder: (_, __, ___) => Text(
+                  initial,
+                  style: TextStyle(
+                    color:
+                        Theme.of(context).colorScheme.onSecondaryContainer,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            )
+          : Text(
+              initial,
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onSecondaryContainer,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
     );
   }
 }

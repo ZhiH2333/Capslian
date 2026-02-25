@@ -9,6 +9,12 @@ import '../data/models/local_chat_message.dart';
 import '../data/models/sn_chat_message.dart';
 import '../events/chat_events.dart';
 
+/// 某个房间的最新一条消息（仅查本地 DB，供会话列表预览使用）。
+final roomLastMessageProvider =
+    AutoDisposeFutureProvider.family<LocalChatMessage?, String>((ref, roomId) async {
+  return ChatDatabase.getLastMessageForRoom(roomId);
+});
+
 /// 当前用户所在的聊天房间列表。
 final chatRoomListProvider =
     AsyncNotifierProvider<ChatRoomListNotifier, List<ChatRoom>>(
@@ -41,20 +47,39 @@ class ChatRoomListNotifier extends AsyncNotifier<List<ChatRoom>> {
   }
 
   /// 获取或创建与某用户的私信房间。
-  Future<ChatRoom?> fetchOrCreateDirectRoom(String peerId) async {
-    try {
-      final dio = ref.read(dioProvider);
-      final response = await dio.post<Map<String, dynamic>>(
-        ApiConstants.messagerChatDirect(peerId),
-      );
-      final data = response.data;
-      if (data == null) return null;
-      final roomJson =
-          (data['room'] as Map<String, dynamic>?) ?? data;
-      return ChatRoom.fromJson(roomJson);
-    } catch (_) {
-      return null;
+  /// 失败时抛出 [Exception]，调用方负责处理错误提示。
+  Future<ChatRoom> fetchOrCreateDirectRoom(String peerId) async {
+    final dio = ref.read(dioProvider);
+    final response = await dio.post<Map<String, dynamic>>(
+      ApiConstants.messagerChatDirect(peerId),
+    );
+    final data = response.data;
+    if (data == null) throw Exception('服务器返回空数据');
+    final roomJson = (data['room'] as Map<String, dynamic>?) ?? data;
+    final room = ChatRoom.fromJson(roomJson);
+    // 若房间不在当前列表中，将其插入顶部（无需重新请求列表）
+    final current = state.valueOrNull ?? [];
+    if (!current.any((r) => r.id == room.id)) {
+      state = AsyncData(<ChatRoom>[room, ...current]);
     }
+    return room;
+  }
+
+  /// 收到新消息时，将对应房间移到列表顶部（体现"最近活跃"排序）。
+  /// 若房间不在列表中则触发一次完整刷新。
+  void handleNewMessage(String roomId) {
+    final current = state.valueOrNull;
+    if (current == null) return;
+    final idx = current.indexWhere((r) => r.id == roomId);
+    if (idx < 0) {
+      fetchRooms();
+      return;
+    }
+    final room = current[idx];
+    final next = List<ChatRoom>.from(current)
+      ..removeAt(idx)
+      ..insert(0, room);
+    state = AsyncData(next);
   }
 }
 
@@ -107,6 +132,10 @@ class ChatGlobalSyncNotifier extends Notifier<void> {
       );
       await ChatDatabase.saveMessage(local);
       chatEventBus.fire(ChatMessageNewEvent(local));
+      if (local.roomId.isNotEmpty) {
+        ref.read(chatRoomListProvider.notifier).handleNewMessage(local.roomId);
+        ref.invalidate(roomLastMessageProvider(local.roomId));
+      }
     } catch (_) {}
   }
 

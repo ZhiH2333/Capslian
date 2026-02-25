@@ -15,30 +15,35 @@ import 'features/direct/providers/chat_providers.dart';
 import 'features/notifications/providers/notifications_providers.dart';
 
 void main() {
-  runZonedGuarded(() {
-    WidgetsFlutterBinding.ensureInitialized();
-    SharedPreferences.getInstance().then((SharedPreferences prefs) {
-      runApp(
-        ProviderScope(
-          overrides: [sharedPreferencesProvider.overrideWith((ref) => prefs)],
-          child: const MolianApp(),
+  runZonedGuarded(
+    () {
+      WidgetsFlutterBinding.ensureInitialized();
+      SharedPreferences.getInstance().then((SharedPreferences prefs) {
+        runApp(
+          ProviderScope(
+            overrides: [sharedPreferencesProvider.overrideWith((ref) => prefs)],
+            child: const MolianApp(),
+          ),
+        );
+      });
+    },
+    (Object error, StackTrace stack) {
+      if (error is WebSocketChannelException) {
+        return;
+      }
+      if (error.toString().contains('Connection refused') &&
+          error.toString().contains('61199')) {
+        return;
+      }
+      FlutterError.reportError(
+        FlutterErrorDetails(
+          exception: error,
+          stack: stack,
+          library: 'runZonedGuarded',
         ),
       );
-    });
-  }, (Object error, StackTrace stack) {
-    if (error is WebSocketChannelException) {
-      return;
-    }
-    if (error.toString().contains('Connection refused') &&
-        error.toString().contains('61199')) {
-      return;
-    }
-    FlutterError.reportError(FlutterErrorDetails(
-      exception: error,
-      stack: stack,
-      library: 'runZonedGuarded',
-    ));
-  });
+    },
+  );
 }
 
 class MolianApp extends ConsumerWidget {
@@ -52,7 +57,7 @@ class MolianApp extends ConsumerWidget {
     final themeMode = ref.watch(themeModeProvider);
     final themeSettings = ref.watch(themeSettingsProvider);
     return MaterialApp.router(
-      title: 'Molian',
+      title: 'Molian V1',
       theme: AppTheme.light(themeSettings),
       darkTheme: AppTheme.dark(themeSettings),
       themeMode: themeMode,

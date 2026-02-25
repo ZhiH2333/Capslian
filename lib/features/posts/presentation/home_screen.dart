@@ -35,7 +35,7 @@ class HomeScreen extends ConsumerWidget {
                 if (authState.valueOrNull != null) ...[
                   IconButton(
                     icon: const Icon(Icons.chat),
-                    onPressed: () => context.push(AppRoutes.direct),
+                    onPressed: () => context.push(AppRoutes.chatRooms),
                   ),
                   IconButton(
                     icon: const Icon(Icons.person),

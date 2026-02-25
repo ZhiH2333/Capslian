@@ -962,10 +962,12 @@ app.post("/api/files/confirm", async (c) => {
 
 // ----- Messager: 房间制聊天 -----
 
-// 聊天相关 DB 表初始化（首次调用时自动建表）
+// 聊天相关 DB 表初始化（首次调用时自动建表）。
+// D1 的 exec() 每次只支持一条语句，需逐条执行。
 async function ensureChatTables(db: D1Database): Promise<void> {
-  await db.exec(`
-    CREATE TABLE IF NOT EXISTS chat_rooms (
+  // 使用 prepare().run() 逐条执行 DDL，避免 exec() 在 D1 生产环境中的不稳定问题
+  const ddlStatements = [
+    `CREATE TABLE IF NOT EXISTS chat_rooms (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
       type TEXT NOT NULL DEFAULT 'direct',
@@ -974,16 +976,16 @@ async function ensureChatTables(db: D1Database): Promise<void> {
       member_count INTEGER DEFAULT 0,
       last_message_at TEXT,
       created_at TEXT DEFAULT (datetime('now'))
-    );
-    CREATE TABLE IF NOT EXISTS chat_room_members (
+    )`,
+    `CREATE TABLE IF NOT EXISTS chat_room_members (
       id TEXT PRIMARY KEY,
       room_id TEXT NOT NULL,
       user_id TEXT NOT NULL,
       role TEXT NOT NULL DEFAULT 'member',
       joined_at TEXT DEFAULT (datetime('now')),
       UNIQUE(room_id, user_id)
-    );
-    CREATE TABLE IF NOT EXISTS chat_room_messages (
+    )`,
+    `CREATE TABLE IF NOT EXISTS chat_room_messages (
       id TEXT PRIMARY KEY,
       room_id TEXT NOT NULL,
       sender_id TEXT NOT NULL,
@@ -997,10 +999,17 @@ async function ensureChatTables(db: D1Database): Promise<void> {
       attachments TEXT NOT NULL DEFAULT '[]',
       reactions TEXT NOT NULL DEFAULT '{}',
       meta TEXT
-    );
-    CREATE INDEX IF NOT EXISTS idx_chat_room_messages_room ON chat_room_messages (room_id, created_at);
-    CREATE INDEX IF NOT EXISTS idx_chat_room_messages_nonce ON chat_room_messages (nonce);
-  `);
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_chat_room_messages_room ON chat_room_messages (room_id, created_at)`,
+    `CREATE INDEX IF NOT EXISTS idx_chat_room_messages_nonce ON chat_room_messages (nonce)`,
+  ];
+  for (const sql of ddlStatements) {
+    try {
+      await db.prepare(sql).run();
+    } catch (_) {
+      // 表/索引已存在时忽略错误，继续执行后续语句
+    }
+  }
 }
 
 async function buildMessageResponse(

@@ -12,6 +12,23 @@ enum MessageAction {
   resend,
 }
 
+/// 滑动显示时间戳的最大偏移量（px）。
+const double _kMaxSlide = 72.0;
+
+/// 右侧时间戳占位宽度（px，含秒后需要更宽）。
+const double _kTimestampWidth = 80.0;
+
+/// 格式化消息时间戳为 HH:mm:ss（含秒）。
+String _formatTimestamp(String? iso) {
+  if (iso == null) return '';
+  final dt = DateTime.tryParse(iso);
+  if (dt == null) return '';
+  final local = dt.toLocal();
+  return '${local.hour.toString().padLeft(2, '0')}:'
+      '${local.minute.toString().padLeft(2, '0')}:'
+      '${local.second.toString().padLeft(2, '0')}';
+}
+
 /// 单条消息的完整 UI，包括气泡、发送者信息、状态、回复预览和反应。
 class MessageItem extends StatelessWidget {
   const MessageItem({
@@ -21,6 +38,7 @@ class MessageItem extends StatelessWidget {
     required this.isFirstInGroup,
     required this.isLastInGroup,
     required this.onAction,
+    required this.slideOffsetNotifier,
   });
 
   final LocalChatMessage message;
@@ -28,6 +46,9 @@ class MessageItem extends StatelessWidget {
   final bool isFirstInGroup;
   final bool isLastInGroup;
   final void Function(MessageAction action, LocalChatMessage message) onAction;
+
+  /// 列表层传入的水平滑动偏移，用于 iMessage 风格的时间戳显示。
+  final ValueNotifier<double> slideOffsetNotifier;
 
   @override
   Widget build(BuildContext context) {
@@ -37,44 +58,88 @@ class MessageItem extends StatelessWidget {
         isLastInGroup: isLastInGroup,
       );
     }
-    return GestureDetector(
-      onLongPress: () => _showActionMenu(context),
-      child: Padding(
-        padding: EdgeInsets.only(
-          left: isCurrentUser ? 48 : 12,
-          right: isCurrentUser ? 12 : 48,
-          top: isFirstInGroup ? 8 : 2,
-          bottom: isLastInGroup ? 4 : 0,
-        ),
-        child: Row(
-          mainAxisAlignment:
-              isCurrentUser ? MainAxisAlignment.end : MainAxisAlignment.start,
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            if (!isCurrentUser) _buildAvatar(context),
-            const SizedBox(width: 8),
-            Flexible(
-              child: Column(
-                crossAxisAlignment: isCurrentUser
-                    ? CrossAxisAlignment.end
-                    : CrossAxisAlignment.start,
-                children: [
-                  if (!isCurrentUser && isFirstInGroup)
-                    _buildSenderName(context),
-                  if (message.replyMessage != null)
-                    _ReplyPreview(replyMessage: message.replyMessage!),
-                  _buildBubble(context),
-                  if (message.reactions.isNotEmpty)
-                    _ReactionsRow(reactions: message.reactions),
-                  if (isLastInGroup)
-                    _MessageFooter(
-                      message: message,
-                      isCurrentUser: isCurrentUser,
+    return ValueListenableBuilder<double>(
+      valueListenable: slideOffsetNotifier,
+      builder: (BuildContext ctx, double offset, Widget? child) {
+        return LayoutBuilder(
+          builder: (BuildContext lctx, BoxConstraints constraints) {
+            return ClipRect(
+              child: SizedBox(
+                width: constraints.maxWidth,
+                child: Stack(
+                  clipBehavior: Clip.none,
+                  children: <Widget>[
+                    // 时间戳：初始在右侧屏幕外，向左滑动后逐渐显现
+                    Positioned(
+                      right: -_kTimestampWidth + offset,
+                      top: 0,
+                      bottom: 0,
+                      child: SizedBox(
+                        width: _kTimestampWidth,
+                        child: Center(
+                          child: Opacity(
+                            opacity: (offset / _kMaxSlide).clamp(0.0, 1.0),
+                            child: Text(
+                              _formatTimestamp(message.createdAt),
+                              style: Theme.of(ctx).textTheme.labelSmall?.copyWith(
+                                    color: Theme.of(ctx).colorScheme.onSurfaceVariant,
+                                  ),
+                            ),
+                          ),
+                        ),
+                      ),
                     ),
-                ],
+                    // 消息内容：向左平移
+                    Transform.translate(
+                      offset: Offset(-offset, 0),
+                      child: child,
+                    ),
+                  ],
+                ),
               ),
-            ),
-          ],
+            );
+          },
+        );
+      },
+      child: GestureDetector(
+        onLongPress: () => _showActionMenu(context),
+        child: Padding(
+          padding: EdgeInsets.only(
+            left: isCurrentUser ? 48 : 12,
+            right: isCurrentUser ? 12 : 48,
+            top: isFirstInGroup ? 8 : 2,
+            bottom: isLastInGroup ? 4 : 0,
+          ),
+          child: Row(
+            mainAxisAlignment:
+                isCurrentUser ? MainAxisAlignment.end : MainAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: <Widget>[
+              if (!isCurrentUser) _buildAvatar(context),
+              const SizedBox(width: 8),
+              Flexible(
+                child: Column(
+                  crossAxisAlignment: isCurrentUser
+                      ? CrossAxisAlignment.end
+                      : CrossAxisAlignment.start,
+                  children: <Widget>[
+                    if (!isCurrentUser && isFirstInGroup)
+                      _buildSenderName(context),
+                    if (message.replyMessage != null)
+                      _ReplyPreview(replyMessage: message.replyMessage!),
+                    _buildBubble(context),
+                    if (message.reactions.isNotEmpty)
+                      _ReactionsRow(reactions: message.reactions),
+                    if (isLastInGroup)
+                      _MessageFooter(
+                        message: message,
+                        isCurrentUser: isCurrentUser,
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -341,7 +406,9 @@ class _MessageFooter extends StatelessWidget {
     final dt = DateTime.tryParse(iso);
     if (dt == null) return '';
     final local = dt.toLocal();
-    return '${local.hour.toString().padLeft(2, '0')}:${local.minute.toString().padLeft(2, '0')}';
+    return '${local.hour.toString().padLeft(2, '0')}:'
+        '${local.minute.toString().padLeft(2, '0')}:'
+        '${local.second.toString().padLeft(2, '0')}';
   }
 }
 

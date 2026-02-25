@@ -12,7 +12,6 @@ import '../../features/posts/presentation/create_post_screen.dart';
 import '../../features/posts/presentation/post_comments_screen.dart';
 import '../../features/posts/presentation/post_detail_screen.dart';
 import '../../features/direct/presentation/chat_screen.dart';
-import '../../features/direct/presentation/conversation_list_screen.dart';
 import '../../features/direct/presentation/friend_requests_screen.dart';
 import '../../features/direct/presentation/user_search_screen.dart';
 import '../../features/discovery/presentation/explore_screen.dart';
@@ -30,13 +29,14 @@ class AppRoutes {
   static const String register = '/register';
   static const String profile = '/profile';
   static const String createPost = '/posts/create';
-  static const String direct = '/direct';
   static const String settings = '/settings';
   static const String userSearch = '/users/search';
   static const String friendRequests = '/friend-requests';
   static const String explore = '/explore';
   static const String realms = '/realms';
   static const String files = '/files';
+  static const String direct = '/direct';
+  static String directConversation(String peerId) => '/direct/$peerId';
   static const String chatRooms = '/chat';
   static String chatRoom(String roomId) => '/chat/$roomId';
 }
@@ -87,19 +87,6 @@ GoRouter createAppRouter() {
         },
       ),
       GoRoute(
-        path: AppRoutes.direct,
-        builder: (BuildContext context, GoRouterState state) =>
-            const ConversationListScreen(),
-      ),
-      GoRoute(
-        path: '${AppRoutes.direct}/:userId',
-        builder: (BuildContext context, GoRouterState state) {
-          final userId = state.pathParameters['userId'] ?? '';
-          final peerDisplayName = state.uri.queryParameters['peerName'];
-          return ChatScreen(peerUserId: userId, peerDisplayName: peerDisplayName);
-        },
-      ),
-      GoRoute(
         path: AppRoutes.userSearch,
         builder: (BuildContext context, GoRouterState state) =>
             const UserSearchScreen(),
@@ -128,6 +115,14 @@ GoRouter createAppRouter() {
         path: AppRoutes.files,
         builder: (BuildContext context, GoRouterState state) =>
             const FilesScreen(),
+      ),
+      GoRoute(
+        path: '${AppRoutes.direct}/:peerId',
+        builder: (BuildContext context, GoRouterState state) {
+          final peerId = state.pathParameters['peerId'] ?? '';
+          final peerName = state.uri.queryParameters['peerName'];
+          return ChatScreen(peerUserId: peerId, peerDisplayName: peerName);
+        },
       ),
       GoRoute(
         path: AppRoutes.chatRooms,

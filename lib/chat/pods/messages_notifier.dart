@@ -4,9 +4,11 @@ import 'package:uuid/uuid.dart';
 
 import '../../core/constants/api_constants.dart';
 import '../../core/network/dio_provider.dart';
+import '../../features/auth/providers/auth_providers.dart';
 import '../data/chat_database.dart';
 import '../data/models/local_chat_message.dart';
 import '../data/models/sn_chat_message.dart';
+import 'chat_room.dart';
 
 /// 指定房间的消息列表状态管理。
 final messagesProvider = AsyncNotifierProvider.family<MessagesNotifier,
@@ -96,10 +98,11 @@ class MessagesNotifier
     final nonce = const Uuid().v4();
     final tempId = 'pending_$nonce';
     final now = DateTime.now().toIso8601String();
+    final myId = ref.read(authStateProvider).valueOrNull?.id ?? '';
     final optimistic = LocalChatMessage(
       id: tempId,
       roomId: _roomId,
-      senderId: '',
+      senderId: myId,
       content: content,
       status: MessageStatus.pending,
       createdAt: now,
@@ -140,6 +143,8 @@ class MessagesNotifier
       await ChatDatabase.deleteMessage(tempId);
       await ChatDatabase.saveMessage(serverMessage);
       _replaceMessage(tempId, serverMessage);
+      ref.read(chatRoomListProvider.notifier).handleNewMessage(_roomId);
+      ref.invalidate(roomLastMessageProvider(_roomId));
     } catch (_) {
       await ChatDatabase.updateMessageStatus(tempId, MessageStatus.failed);
       _markFailed(tempId);
@@ -222,8 +227,10 @@ class MessagesNotifier
 
   void _replaceMessage(String oldId, LocalChatMessage newMessage) {
     final current = state.valueOrNull ?? [];
+    // 同时按 oldId 和 newMessage.id 过滤，防止 WebSocket 比 API 响应更早到达
+    // 导致服务端消息已被 receiveMessage 添加后，_replaceMessage 再次重复添加
     final next = current
-        .where((m) => m.id != oldId)
+        .where((m) => m.id != oldId && m.id != newMessage.id)
         .toList();
     next.add(newMessage);
     next.sort(_compareByCreatedAt);

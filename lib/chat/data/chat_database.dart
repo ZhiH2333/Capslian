@@ -113,6 +113,20 @@ class ChatDatabase {
     return LocalChatMessage.fromDbMap(rows.first);
   }
 
+  /// 获取指定房间的最新一条消息（按 created_at 降序）。
+  static Future<LocalChatMessage?> getLastMessageForRoom(String roomId) async {
+    final db = await _getDb();
+    final rows = await db.query(
+      _messagesTable,
+      where: 'room_id = ? AND deleted_at IS NULL',
+      whereArgs: [roomId],
+      orderBy: 'created_at DESC',
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    return LocalChatMessage.fromDbMap(rows.first);
+  }
+
   /// 更新消息状态。
   static Future<void> updateMessageStatus(
     String id,

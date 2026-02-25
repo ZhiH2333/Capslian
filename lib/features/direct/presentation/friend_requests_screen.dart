@@ -198,7 +198,6 @@ class _FriendRequestsScreenState extends ConsumerState<FriendRequestsScreen> {
                         itemBuilder: (_, int i) {
                           final r = _list[i];
                           final id = r['id']?.toString() ?? '';
-                          final requesterId = r['requester_id']?.toString() ?? '';
                           final username = r['username']?.toString() ?? '';
                           final displayName = r['display_name']?.toString() ?? '';
                           final avatarUrl = r['avatar_url']?.toString();
@@ -247,7 +246,7 @@ class _FriendRequestsScreenState extends ConsumerState<FriendRequestsScreen> {
                                       ),
                                     ],
                                   ),
-                            onTap: () => context.push('${AppRoutes.direct}/$requesterId'),
+                            onTap: null,
                           );
                         },
                       ),
