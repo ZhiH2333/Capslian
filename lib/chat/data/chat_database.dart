@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:path/path.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
@@ -6,6 +7,7 @@ import 'models/local_chat_message.dart';
 
 /// 聊天本地数据库，基于 SQLite（sqflite）。
 /// 存储聊天房间消息，支持离线与首屏加速。
+/// Web 平台不支持 path_provider/sqflite，所有方法在 Web 上为 no-op 或返回空，仅依赖 API/WebSocket 内存状态。
 class ChatDatabase {
   ChatDatabase._();
 
@@ -13,7 +15,8 @@ class ChatDatabase {
   static const int _version = 1;
   static const String _messagesTable = 'chat_room_messages';
 
-  static Future<Database> _getDb() async {
+  static Future<Database?> _getDb() async {
+    if (kIsWeb) return null;
     if (_db != null && _db!.isOpen) return _db!;
     final dir = await getApplicationDocumentsDirectory();
     final path = join(dir.path, 'molian_chat_rooms.db');
@@ -22,7 +25,7 @@ class ChatDatabase {
       version: _version,
       onCreate: _onCreate,
     );
-    return _db!;
+    return _db;
   }
 
   static Future<void> _onCreate(Database db, int version) async {
@@ -56,6 +59,7 @@ class ChatDatabase {
   /// 保存或替换单条消息（含发送者信息）。
   static Future<void> saveMessage(LocalChatMessage message) async {
     final db = await _getDb();
+    if (db == null) return;
     await db.insert(
       _messagesTable,
       message.toDbMap(),
@@ -66,6 +70,7 @@ class ChatDatabase {
   /// 删除指定 id 的消息。
   static Future<void> deleteMessage(String id) async {
     final db = await _getDb();
+    if (db == null) return;
     await db.delete(_messagesTable, where: 'id = ?', whereArgs: [id]);
   }
 
@@ -76,6 +81,7 @@ class ChatDatabase {
     int take = 50,
   }) async {
     final db = await _getDb();
+    if (db == null) return [];
     final rows = await db.query(
       _messagesTable,
       where: 'room_id = ?',
@@ -90,6 +96,7 @@ class ChatDatabase {
   /// 按 id 获取单条消息。
   static Future<LocalChatMessage?> getMessageById(String id) async {
     final db = await _getDb();
+    if (db == null) return null;
     final rows = await db.query(
       _messagesTable,
       where: 'id = ?',
@@ -103,6 +110,7 @@ class ChatDatabase {
   /// 按 nonce 获取消息（用于 pending 消息去重）。
   static Future<LocalChatMessage?> getMessageByNonce(String nonce) async {
     final db = await _getDb();
+    if (db == null) return null;
     final rows = await db.query(
       _messagesTable,
       where: 'nonce = ?',
@@ -116,6 +124,7 @@ class ChatDatabase {
   /// 获取指定房间的最新一条消息（按 created_at 降序）。
   static Future<LocalChatMessage?> getLastMessageForRoom(String roomId) async {
     final db = await _getDb();
+    if (db == null) return null;
     final rows = await db.query(
       _messagesTable,
       where: 'room_id = ? AND deleted_at IS NULL',
@@ -133,6 +142,7 @@ class ChatDatabase {
     MessageStatus status,
   ) async {
     final db = await _getDb();
+    if (db == null) return;
     await db.update(
       _messagesTable,
       {'status': status.name},
@@ -145,6 +155,7 @@ class ChatDatabase {
   static Future<void> saveMessages(List<LocalChatMessage> messages) async {
     if (messages.isEmpty) return;
     final db = await _getDb();
+    if (db == null) return;
     final batch = db.batch();
     for (final m in messages) {
       batch.insert(
