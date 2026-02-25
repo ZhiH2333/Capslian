@@ -1,5 +1,3 @@
-import 'package:flutter/foundation.dart';
-
 /// API 基础地址与路径常量。
 class ApiConstants {
   ApiConstants._();
@@ -11,24 +9,14 @@ class ApiConstants {
 
   static const String _wsBaseUrlEnv = String.fromEnvironment(
     'WS_BASE_URL',
-    defaultValue: 'ws://localhost:8787',
+    defaultValue: 'wss://molian-api.zhih2333.workers.dev',
   );
 
-  /// REST API 基地址。Debug 且未显式设置时默认使用本地 127.0.0.1:8787。
-  static String get baseUrl {
-    if (kDebugMode && _baseUrlEnv == 'https://molian-api.zhih2333.workers.dev') {
-      return 'http://127.0.0.1:8787';
-    }
-    return _baseUrlEnv;
-  }
+  /// REST API 基地址。默认远端 Worker；本地调试时用 --dart-define=API_BASE_URL=http://127.0.0.1:8787 连本地。
+  static String get baseUrl => _baseUrlEnv;
 
-  /// WebSocket 基地址。Debug 且未显式设置时默认使用本地 127.0.0.1:8787。
-  static String get wsBaseUrl {
-    if (kDebugMode && _wsBaseUrlEnv == 'ws://localhost:8787') {
-      return 'ws://127.0.0.1:8787';
-    }
-    return _wsBaseUrlEnv;
-  }
+  /// WebSocket 基地址。默认与 API 同域（wss）；本地调试时用 --dart-define=WS_BASE_URL=ws://127.0.0.1:8787。
+  static String get wsBaseUrl => _wsBaseUrlEnv;
   static const String authLogin = '/api/auth/login';
   static const String authRegister = '/api/auth/register';
   static const String authMe = '/api/auth/me';
@@ -50,4 +38,19 @@ class ApiConstants {
   static const String notificationsList = '/api/notifications';
   static const String notificationsRead = '/api/notifications/read';
   static const String notificationsSubscribe = '/api/notifications/subscribe';
+
+  static const String messagerChat = '/messager/chat';
+
+  static String messagerChatMessages(String roomId) =>
+      '/messager/chat/$roomId/messages';
+
+  static String messagerChatMessage(String roomId, String messageId) =>
+      '/messager/chat/$roomId/messages/$messageId';
+
+  static String messagerChatMessageReaction(
+          String roomId, String messageId, String emoji) =>
+      '/messager/chat/$roomId/messages/$messageId/reactions/$emoji';
+
+  static String messagerChatDirect(String peerId) =>
+      '/messager/chat/direct/$peerId';
 }

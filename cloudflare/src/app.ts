@@ -73,20 +73,25 @@ app.post("/api/auth/register", async (c) => {
       .bind(id, username, hashHex, saltBase64, displayName)
       .run();
     const token = await signJwt({ sub: id }, secret);
-    const refreshToken = generateRefreshToken();
-    const tokenHash = await sha256Hex(refreshToken);
-    const expiresAt = new Date(Date.now() + REFRESH_TOKEN_EXPIRY_SECONDS * 1000).toISOString().replace("T", " ").slice(0, 19);
-    await env.molian_db.prepare(
-      "INSERT INTO refresh_tokens (id, user_id, token_hash, expires_at) VALUES (?, ?, ?, ?)"
-    )
-      .bind(uuid(), id, tokenHash, expiresAt)
-      .run();
+    let refreshToken: string | undefined;
+    try {
+      refreshToken = generateRefreshToken();
+      const tokenHash = await sha256Hex(refreshToken);
+      const expiresAt = new Date(Date.now() + REFRESH_TOKEN_EXPIRY_SECONDS * 1000).toISOString().replace("T", " ").slice(0, 19);
+      await env.molian_db.prepare(
+        "INSERT INTO refresh_tokens (id, user_id, token_hash, expires_at) VALUES (?, ?, ?, ?)"
+      )
+        .bind(uuid(), id, tokenHash, expiresAt)
+        .run();
+    } catch (_) {
+      // refresh_tokens 表可能未迁移，仅跳过 refresh_token，仍返回 token 与 user
+    }
     const row = await env.molian_db.prepare(
       "SELECT id, username, display_name, avatar_url, bio, created_at FROM users WHERE id = ?"
     )
       .bind(id)
       .first();
-    return c.json({ token, refresh_token: refreshToken, user: row }, 200, corsHeaders());
+    return c.json({ token, ...(refreshToken && { refresh_token: refreshToken }), user: row }, 200, corsHeaders());
   } catch (e: unknown) {
     const msg = e && typeof (e as { message?: string }).message === "string" ? (e as { message: string }).message : String(e);
     console.error("Register error:", msg);
@@ -113,14 +118,19 @@ app.post("/api/auth/login", async (c) => {
     const ok = await verifyPassword(password, String(r.salt), String(r.password_hash));
     if (!ok) return c.json({ error: "用户名或密码错误" }, 401, corsHeaders());
     const token = await signJwt({ sub: String(r.id) }, secret);
-    const refreshToken = generateRefreshToken();
-    const tokenHash = await sha256Hex(refreshToken);
-    const expiresAt = new Date(Date.now() + REFRESH_TOKEN_EXPIRY_SECONDS * 1000).toISOString().replace("T", " ").slice(0, 19);
-    await env.molian_db.prepare(
-      "INSERT INTO refresh_tokens (id, user_id, token_hash, expires_at) VALUES (?, ?, ?, ?)"
-    )
-      .bind(uuid(), String(r.id), tokenHash, expiresAt)
-      .run();
+    let refreshToken: string | undefined;
+    try {
+      refreshToken = generateRefreshToken();
+      const tokenHash = await sha256Hex(refreshToken);
+      const expiresAt = new Date(Date.now() + REFRESH_TOKEN_EXPIRY_SECONDS * 1000).toISOString().replace("T", " ").slice(0, 19);
+      await env.molian_db.prepare(
+        "INSERT INTO refresh_tokens (id, user_id, token_hash, expires_at) VALUES (?, ?, ?, ?)"
+      )
+        .bind(uuid(), String(r.id), tokenHash, expiresAt)
+        .run();
+    } catch (_) {
+      // refresh_tokens 表可能未迁移，仅跳过 refresh_token
+    }
     const user = {
       id: r.id,
       username: r.username,
@@ -129,7 +139,7 @@ app.post("/api/auth/login", async (c) => {
       bio: r.bio,
       created_at: r.created_at,
     };
-    return c.json({ token, refresh_token: refreshToken, user }, 200, corsHeaders());
+    return c.json({ token, ...(refreshToken && { refresh_token: refreshToken }), user }, 200, corsHeaders());
   } catch {
     return c.json({ error: "登录失败" }, 500, corsHeaders());
   }
@@ -708,8 +718,10 @@ app.post("/api/upload", async (c) => {
   }
 });
 
-app.get("/api/asset/:key(*)", async (c) => {
-  const key = decodeURIComponent(c.req.param("key"));
+// 使用 {.+} 确保整段 key（含 %2F 等编码）被捕获，decode 后与 R2 一致
+app.get("/api/asset/:key{.+}", async (c) => {
+  const raw = c.req.param("key");
+  const key = decodeURIComponent(raw);
   const obj = await c.env.ASSETS.get(key);
   if (!obj) return new Response("Not Found", { status: 404, headers: corsHeaders() });
   const headers = new Headers(corsHeaders());
@@ -945,6 +957,485 @@ app.post("/api/files/confirm", async (c) => {
     const msg = e && typeof (e as { message?: string }).message === "string" ? (e as { message: string }).message : String(e);
     if (msg.includes("no such table")) return c.json({ error: "服务未就绪" }, 503, corsHeaders());
     return c.json({ error: "登记失败" }, 500, corsHeaders());
+  }
+});
+
+// ----- Messager: 房间制聊天 -----
+
+// 聊天相关 DB 表初始化（首次调用时自动建表）
+async function ensureChatTables(db: D1Database): Promise<void> {
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS chat_rooms (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      type TEXT NOT NULL DEFAULT 'direct',
+      description TEXT,
+      avatar_url TEXT,
+      member_count INTEGER DEFAULT 0,
+      last_message_at TEXT,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE TABLE IF NOT EXISTS chat_room_members (
+      id TEXT PRIMARY KEY,
+      room_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'member',
+      joined_at TEXT DEFAULT (datetime('now')),
+      UNIQUE(room_id, user_id)
+    );
+    CREATE TABLE IF NOT EXISTS chat_room_messages (
+      id TEXT PRIMARY KEY,
+      room_id TEXT NOT NULL,
+      sender_id TEXT NOT NULL,
+      content TEXT NOT NULL DEFAULT '',
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now')),
+      deleted_at TEXT,
+      nonce TEXT,
+      reply_id TEXT,
+      forwarded_id TEXT,
+      attachments TEXT NOT NULL DEFAULT '[]',
+      reactions TEXT NOT NULL DEFAULT '{}',
+      meta TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_chat_room_messages_room ON chat_room_messages (room_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_chat_room_messages_nonce ON chat_room_messages (nonce);
+  `);
+}
+
+async function buildMessageResponse(
+  env: Env,
+  row: Record<string, unknown>
+): Promise<Record<string, unknown>> {
+  const senderRow = await env.molian_db
+    .prepare("SELECT id, username, display_name, avatar_url FROM users WHERE id = ?")
+    .bind(row.sender_id)
+    .first() as Record<string, unknown> | null;
+  let replyMessage: Record<string, unknown> | null = null;
+  if (row.reply_id) {
+    const rr = await env.molian_db
+      .prepare("SELECT * FROM chat_room_messages WHERE id = ?")
+      .bind(row.reply_id)
+      .first() as Record<string, unknown> | null;
+    if (rr) {
+      const rrSender = await env.molian_db
+        .prepare("SELECT id, username, display_name, avatar_url FROM users WHERE id = ?")
+        .bind(rr.sender_id)
+        .first() as Record<string, unknown> | null;
+      replyMessage = {
+        ...rr,
+        room_id: rr.room_id,
+        attachments: JSON.parse(String(rr.attachments || "[]")),
+        reactions: JSON.parse(String(rr.reactions || "{}")),
+        sender: rrSender,
+      };
+    }
+  }
+  return {
+    id: row.id,
+    room_id: row.room_id,
+    sender_id: row.sender_id,
+    content: row.content,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+    deleted_at: row.deleted_at,
+    nonce: row.nonce,
+    attachments: JSON.parse(String(row.attachments || "[]")),
+    reactions: JSON.parse(String(row.reactions || "{}")),
+    meta: row.meta ? JSON.parse(String(row.meta)) : null,
+    reply_message: replyMessage,
+    sender: senderRow ? {
+      id: senderRow.id,
+      username: senderRow.username,
+      display_name: senderRow.display_name,
+      avatar_url: senderRow.avatar_url,
+    } : null,
+  };
+}
+
+async function broadcastRoomMessage(
+  env: Env,
+  roomId: string,
+  type: string,
+  message: Record<string, unknown>
+): Promise<void> {
+  try {
+    const id = env.CHAT.idFromName("default");
+    const stub = env.CHAT.get(id);
+    await stub.fetch(new Request(
+      `https://internal/broadcast/${encodeURIComponent(roomId)}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type, message }),
+      }
+    ));
+  } catch (e) {
+    console.error("broadcastRoomMessage error:", e);
+  }
+}
+
+// GET /messager/chat - 获取用户所在的聊天房间列表
+app.get("/messager/chat", async (c) => {
+  const userId = await getUserIdFromRequest(c);
+  if (!userId) return c.json({ error: "未登录" }, 401, corsHeaders());
+  try {
+    await ensureChatTables(c.env.molian_db);
+    const { results } = await c.env.molian_db
+      .prepare(
+        `SELECT r.id, r.name, r.type, r.description, r.avatar_url, r.member_count, r.last_message_at, r.created_at
+         FROM chat_rooms r
+         INNER JOIN chat_room_members m ON m.room_id = r.id
+         WHERE m.user_id = ?
+         ORDER BY r.last_message_at DESC`
+      )
+      .bind(userId)
+      .all();
+    return c.json({ rooms: results }, 200, corsHeaders());
+  } catch (e) {
+    console.error("GET /messager/chat error:", e);
+    return c.json({ error: "获取失败" }, 500, corsHeaders());
+  }
+});
+
+// POST /messager/chat - 创建聊天房间
+app.post("/messager/chat", async (c) => {
+  const userId = await getUserIdFromRequest(c);
+  if (!userId) return c.json({ error: "未登录" }, 401, corsHeaders());
+  try {
+    await ensureChatTables(c.env.molian_db);
+    const body = (await c.req.json()) as {
+      name?: string;
+      type?: string;
+      description?: string;
+      member_ids?: string[];
+    };
+    const name = String(body?.name ?? "").trim();
+    if (!name) return c.json({ error: "name 必填" }, 400, corsHeaders());
+    const type = body?.type === "group" ? "group" : "direct";
+    const id = uuid();
+    await c.env.molian_db
+      .prepare(
+        "INSERT INTO chat_rooms (id, name, type, description) VALUES (?, ?, ?, ?)"
+      )
+      .bind(id, name, type, body?.description ?? null)
+      .run();
+    await c.env.molian_db
+      .prepare(
+        "INSERT INTO chat_room_members (id, room_id, user_id, role) VALUES (?, ?, ?, 'owner')"
+      )
+      .bind(uuid(), id, userId)
+      .run();
+    const memberIds = Array.isArray(body?.member_ids) ? body.member_ids : [];
+    for (const memberId of memberIds) {
+      if (memberId !== userId) {
+        await c.env.molian_db
+          .prepare(
+            "INSERT OR IGNORE INTO chat_room_members (id, room_id, user_id) VALUES (?, ?, ?)"
+          )
+          .bind(uuid(), id, memberId)
+          .run();
+      }
+    }
+    await c.env.molian_db
+      .prepare("UPDATE chat_rooms SET member_count = (SELECT COUNT(*) FROM chat_room_members WHERE room_id = ?) WHERE id = ?")
+      .bind(id, id)
+      .run();
+    const room = await c.env.molian_db
+      .prepare("SELECT * FROM chat_rooms WHERE id = ?")
+      .bind(id)
+      .first();
+    return c.json({ room }, 201, corsHeaders());
+  } catch (e) {
+    console.error("POST /messager/chat error:", e);
+    return c.json({ error: "创建失败" }, 500, corsHeaders());
+  }
+});
+
+// POST /messager/chat/direct/:peerId - 获取或创建与某用户的私信房间
+app.post("/messager/chat/direct/:peerId", async (c) => {
+  const userId = await getUserIdFromRequest(c);
+  if (!userId) return c.json({ error: "未登录" }, 401, corsHeaders());
+  const peerId = c.req.param("peerId");
+  if (!peerId || peerId === userId) return c.json({ error: "无效的 peerId" }, 400, corsHeaders());
+  try {
+    await ensureChatTables(c.env.molian_db);
+    // 查找已存在的私信房间
+    const existing = await c.env.molian_db
+      .prepare(
+        `SELECT r.id, r.name, r.type, r.description, r.avatar_url, r.member_count, r.last_message_at, r.created_at
+         FROM chat_rooms r
+         INNER JOIN chat_room_members m1 ON m1.room_id = r.id AND m1.user_id = ?
+         INNER JOIN chat_room_members m2 ON m2.room_id = r.id AND m2.user_id = ?
+         WHERE r.type = 'direct' AND r.member_count = 2
+         LIMIT 1`
+      )
+      .bind(userId, peerId)
+      .first() as Record<string, unknown> | null;
+    if (existing) return c.json({ room: existing }, 200, corsHeaders());
+    // 创建新私信房间
+    const peerUser = await c.env.molian_db
+      .prepare("SELECT display_name, username FROM users WHERE id = ?")
+      .bind(peerId)
+      .first() as { display_name?: string; username?: string } | null;
+    const peerName = peerUser?.display_name || peerUser?.username || peerId;
+    const id = uuid();
+    await c.env.molian_db
+      .prepare("INSERT INTO chat_rooms (id, name, type, member_count) VALUES (?, ?, 'direct', 2)")
+      .bind(id, peerName)
+      .run();
+    for (const uid of [userId, peerId]) {
+      await c.env.molian_db
+        .prepare("INSERT INTO chat_room_members (id, room_id, user_id) VALUES (?, ?, ?)")
+        .bind(uuid(), id, uid)
+        .run();
+    }
+    const room = await c.env.molian_db
+      .prepare("SELECT * FROM chat_rooms WHERE id = ?")
+      .bind(id)
+      .first();
+    return c.json({ room }, 201, corsHeaders());
+  } catch (e) {
+    console.error("POST /messager/chat/direct error:", e);
+    return c.json({ error: "操作失败" }, 500, corsHeaders());
+  }
+});
+
+// GET /messager/chat/:roomId - 获取房间详情
+app.get("/messager/chat/:roomId", async (c) => {
+  const userId = await getUserIdFromRequest(c);
+  if (!userId) return c.json({ error: "未登录" }, 401, corsHeaders());
+  const roomId = c.req.param("roomId");
+  try {
+    await ensureChatTables(c.env.molian_db);
+    const member = await c.env.molian_db
+      .prepare("SELECT 1 FROM chat_room_members WHERE room_id = ? AND user_id = ?")
+      .bind(roomId, userId)
+      .first();
+    if (!member) return c.json({ error: "无权限" }, 403, corsHeaders());
+    const room = await c.env.molian_db
+      .prepare("SELECT * FROM chat_rooms WHERE id = ?")
+      .bind(roomId)
+      .first() as Record<string, unknown> | null;
+    if (!room) return c.json({ error: "房间不存在" }, 404, corsHeaders());
+    return c.json({ room }, 200, corsHeaders());
+  } catch (e) {
+    console.error("GET /messager/chat/:roomId error:", e);
+    return c.json({ error: "获取失败" }, 500, corsHeaders());
+  }
+});
+
+// GET /messager/chat/:roomId/messages - 分页获取消息
+app.get("/messager/chat/:roomId/messages", async (c) => {
+  const userId = await getUserIdFromRequest(c);
+  if (!userId) return c.json({ error: "未登录" }, 401, corsHeaders());
+  const roomId = c.req.param("roomId");
+  const offset = Math.max(0, Number(c.req.query("offset")) || 0);
+  const take = Math.min(100, Math.max(1, Number(c.req.query("take")) || 50));
+  try {
+    await ensureChatTables(c.env.molian_db);
+    const member = await c.env.molian_db
+      .prepare("SELECT 1 FROM chat_room_members WHERE room_id = ? AND user_id = ?")
+      .bind(roomId, userId)
+      .first();
+    if (!member) return c.json({ error: "无权限" }, 403, corsHeaders());
+    const { results } = await c.env.molian_db
+      .prepare(
+        "SELECT * FROM chat_room_messages WHERE room_id = ? ORDER BY created_at ASC LIMIT ? OFFSET ?"
+      )
+      .bind(roomId, take, offset)
+      .all();
+    const messages = await Promise.all(
+      (results as Record<string, unknown>[]).map((r) => buildMessageResponse(c.env, r))
+    );
+    return c.json({ messages }, 200, corsHeaders());
+  } catch (e) {
+    console.error("GET /messager/chat/:roomId/messages error:", e);
+    return c.json({ error: "获取失败" }, 500, corsHeaders());
+  }
+});
+
+// POST /messager/chat/:roomId/messages - 发送消息
+app.post("/messager/chat/:roomId/messages", async (c) => {
+  const userId = await getUserIdFromRequest(c);
+  if (!userId) return c.json({ error: "未登录" }, 401, corsHeaders());
+  const roomId = c.req.param("roomId");
+  try {
+    await ensureChatTables(c.env.molian_db);
+    const member = await c.env.molian_db
+      .prepare("SELECT 1 FROM chat_room_members WHERE room_id = ? AND user_id = ?")
+      .bind(roomId, userId)
+      .first();
+    if (!member) return c.json({ error: "无权限" }, 403, corsHeaders());
+    const body = (await c.req.json()) as {
+      content?: string;
+      nonce?: string;
+      attachments?: unknown[];
+      reply_id?: string;
+      forwarded_id?: string;
+      meta?: unknown;
+    };
+    const content = String(body?.content ?? "").trim();
+    const attachments = JSON.stringify(Array.isArray(body?.attachments) ? body.attachments : []);
+    const id = uuid();
+    await c.env.molian_db
+      .prepare(
+        `INSERT INTO chat_room_messages
+          (id, room_id, sender_id, content, nonce, attachments, reply_id, forwarded_id, meta)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .bind(
+        id, roomId, userId, content,
+        body?.nonce ?? null, attachments,
+        body?.reply_id ?? null, body?.forwarded_id ?? null,
+        body?.meta ? JSON.stringify(body.meta) : null
+      )
+      .run();
+    await c.env.molian_db
+      .prepare("UPDATE chat_rooms SET last_message_at = datetime('now') WHERE id = ?")
+      .bind(roomId)
+      .run();
+    const row = await c.env.molian_db
+      .prepare("SELECT * FROM chat_room_messages WHERE id = ?")
+      .bind(id)
+      .first() as Record<string, unknown> | null;
+    if (!row) return c.json({ error: "发送失败" }, 500, corsHeaders());
+    const message = await buildMessageResponse(c.env, row);
+    await broadcastRoomMessage(c.env, roomId, "messages.new", message);
+    return c.json({ message }, 200, corsHeaders());
+  } catch (e) {
+    console.error("POST /messager/chat/:roomId/messages error:", e);
+    return c.json({ error: "发送失败" }, 500, corsHeaders());
+  }
+});
+
+// PATCH /messager/chat/:roomId/messages/:messageId - 编辑消息
+app.patch("/messager/chat/:roomId/messages/:messageId", async (c) => {
+  const userId = await getUserIdFromRequest(c);
+  if (!userId) return c.json({ error: "未登录" }, 401, corsHeaders());
+  const roomId = c.req.param("roomId");
+  const messageId = c.req.param("messageId");
+  try {
+    const row = await c.env.molian_db
+      .prepare("SELECT sender_id FROM chat_room_messages WHERE id = ? AND room_id = ?")
+      .bind(messageId, roomId)
+      .first() as { sender_id: string } | null;
+    if (!row) return c.json({ error: "消息不存在" }, 404, corsHeaders());
+    if (row.sender_id !== userId) return c.json({ error: "只能编辑自己的消息" }, 403, corsHeaders());
+    const body = (await c.req.json()) as { content?: string };
+    const content = String(body?.content ?? "").trim();
+    if (!content) return c.json({ error: "内容不能为空" }, 400, corsHeaders());
+    await c.env.molian_db
+      .prepare("UPDATE chat_room_messages SET content = ?, updated_at = datetime('now') WHERE id = ?")
+      .bind(content, messageId)
+      .run();
+    const updated = await c.env.molian_db
+      .prepare("SELECT * FROM chat_room_messages WHERE id = ?")
+      .bind(messageId)
+      .first() as Record<string, unknown> | null;
+    if (!updated) return c.json({ error: "操作失败" }, 500, corsHeaders());
+    const message = await buildMessageResponse(c.env, updated);
+    await broadcastRoomMessage(c.env, roomId, "messages.update", message);
+    return c.json({ message }, 200, corsHeaders());
+  } catch (e) {
+    console.error("PATCH /messager/chat/:roomId/messages/:messageId error:", e);
+    return c.json({ error: "编辑失败" }, 500, corsHeaders());
+  }
+});
+
+// DELETE /messager/chat/:roomId/messages/:messageId - 撤回消息（软删除）
+app.delete("/messager/chat/:roomId/messages/:messageId", async (c) => {
+  const userId = await getUserIdFromRequest(c);
+  if (!userId) return c.json({ error: "未登录" }, 401, corsHeaders());
+  const roomId = c.req.param("roomId");
+  const messageId = c.req.param("messageId");
+  try {
+    const row = await c.env.molian_db
+      .prepare("SELECT sender_id FROM chat_room_messages WHERE id = ? AND room_id = ?")
+      .bind(messageId, roomId)
+      .first() as { sender_id: string } | null;
+    if (!row) return c.json({ error: "消息不存在" }, 404, corsHeaders());
+    if (row.sender_id !== userId) return c.json({ error: "只能撤回自己的消息" }, 403, corsHeaders());
+    await c.env.molian_db
+      .prepare("UPDATE chat_room_messages SET deleted_at = datetime('now') WHERE id = ?")
+      .bind(messageId)
+      .run();
+    await broadcastRoomMessage(c.env, roomId, "messages.delete", {
+      message_id: messageId,
+      room_id: roomId,
+    });
+    return c.json({ deleted: true }, 200, corsHeaders());
+  } catch (e) {
+    console.error("DELETE /messager/chat/:roomId/messages/:messageId error:", e);
+    return c.json({ error: "撤回失败" }, 500, corsHeaders());
+  }
+});
+
+// PUT /messager/chat/:roomId/messages/:messageId/reactions/:emoji - 添加反应
+app.put("/messager/chat/:roomId/messages/:messageId/reactions/:emoji", async (c) => {
+  const userId = await getUserIdFromRequest(c);
+  if (!userId) return c.json({ error: "未登录" }, 401, corsHeaders());
+  const roomId = c.req.param("roomId");
+  const messageId = c.req.param("messageId");
+  const emoji = decodeURIComponent(c.req.param("emoji"));
+  try {
+    const row = await c.env.molian_db
+      .prepare("SELECT reactions FROM chat_room_messages WHERE id = ? AND room_id = ?")
+      .bind(messageId, roomId)
+      .first() as { reactions: string } | null;
+    if (!row) return c.json({ error: "消息不存在" }, 404, corsHeaders());
+    const reactions = JSON.parse(row.reactions || "{}") as Record<string, string[]>;
+    if (!Array.isArray(reactions[emoji])) reactions[emoji] = [];
+    if (!reactions[emoji].includes(userId)) reactions[emoji].push(userId);
+    await c.env.molian_db
+      .prepare("UPDATE chat_room_messages SET reactions = ? WHERE id = ?")
+      .bind(JSON.stringify(reactions), messageId)
+      .run();
+    await broadcastRoomMessage(c.env, roomId, "messages.reaction.added", {
+      message_id: messageId,
+      room_id: roomId,
+      emoji,
+      user_id: userId,
+    });
+    return c.json({ ok: true }, 200, corsHeaders());
+  } catch (e) {
+    console.error("PUT reactions error:", e);
+    return c.json({ error: "操作失败" }, 500, corsHeaders());
+  }
+});
+
+// DELETE /messager/chat/:roomId/messages/:messageId/reactions/:emoji - 移除反应
+app.delete("/messager/chat/:roomId/messages/:messageId/reactions/:emoji", async (c) => {
+  const userId = await getUserIdFromRequest(c);
+  if (!userId) return c.json({ error: "未登录" }, 401, corsHeaders());
+  const roomId = c.req.param("roomId");
+  const messageId = c.req.param("messageId");
+  const emoji = decodeURIComponent(c.req.param("emoji"));
+  try {
+    const row = await c.env.molian_db
+      .prepare("SELECT reactions FROM chat_room_messages WHERE id = ? AND room_id = ?")
+      .bind(messageId, roomId)
+      .first() as { reactions: string } | null;
+    if (!row) return c.json({ error: "消息不存在" }, 404, corsHeaders());
+    const reactions = JSON.parse(row.reactions || "{}") as Record<string, string[]>;
+    if (Array.isArray(reactions[emoji])) {
+      reactions[emoji] = reactions[emoji].filter((id) => id !== userId);
+      if (reactions[emoji].length === 0) delete reactions[emoji];
+    }
+    await c.env.molian_db
+      .prepare("UPDATE chat_room_messages SET reactions = ? WHERE id = ?")
+      .bind(JSON.stringify(reactions), messageId)
+      .run();
+    await broadcastRoomMessage(c.env, roomId, "messages.reaction.removed", {
+      message_id: messageId,
+      room_id: roomId,
+      emoji,
+      user_id: userId,
+    });
+    return c.json({ ok: true }, 200, corsHeaders());
+  } catch (e) {
+    console.error("DELETE reactions error:", e);
+    return c.json({ error: "操作失败" }, 500, corsHeaders());
   }
 });
 

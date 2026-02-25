@@ -10,7 +10,7 @@ import '../../../core/responsive.dart';
 import '../../../core/router/app_router.dart';
 import '../../auth/data/models/user_model.dart';
 import '../../auth/providers/auth_providers.dart';
-import '../../direct/presentation/chat_tab_screen.dart';
+import '../../../chat/presentation/chat_rooms_list_screen.dart';
 import '../../posts/presentation/home_screen.dart';
 import '../../profile/presentation/profile_screen.dart';
 
@@ -50,19 +50,10 @@ class _MainShellScreenState extends ConsumerState<MainShellScreen> {
       data: (user) {
         final body = IndexedStack(
           index: _currentIndex,
-          children: <Widget>[
-            const HomeScreen(inShell: true),
-            ChatTabScreen(
-              onOpenChat: (String peerId, [String? peerDisplayName]) {
-                final path = '${AppRoutes.direct}/$peerId';
-                if (peerDisplayName != null && peerDisplayName.isNotEmpty) {
-                  context.push('$path?peerName=${Uri.encodeComponent(peerDisplayName)}');
-                } else {
-                  context.push(path);
-                }
-              },
-            ),
-            const ProfileScreen(inShell: true),
+          children: const <Widget>[
+            HomeScreen(inShell: true),
+            ChatRoomsListScreen(),
+            ProfileScreen(inShell: true),
           ],
         );
         if (useRail) {

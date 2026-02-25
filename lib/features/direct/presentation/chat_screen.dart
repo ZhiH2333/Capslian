@@ -112,7 +112,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     try {
       await ref.read(socialRepositoryProvider).removeFriend(widget.peerUserId);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已删除好友')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          key: ValueKey('delete_friend_${DateTime.now().millisecondsSinceEpoch}'),
+          content: const Text('已删除好友'),
+        ),
+      );
       context.pop();
     } on DioException catch (e) {
       if (!mounted) return;
@@ -121,11 +126,19 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           ? (data['error'] as String?)
           : null;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(msg ?? '删除失败，请重试')),
+        SnackBar(
+          key: ValueKey('delete_err_${DateTime.now().millisecondsSinceEpoch}'),
+          content: Text(msg ?? '删除失败，请重试'),
+        ),
       );
     } catch (_) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('删除失败，请重试')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          key: ValueKey('delete_fail_${DateTime.now().millisecondsSinceEpoch}'),
+          content: const Text('删除失败，请重试'),
+        ),
+      );
     }
   }
 

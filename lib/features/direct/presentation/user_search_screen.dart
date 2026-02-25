@@ -20,12 +20,30 @@ class _UserSearchScreenState extends ConsumerState<UserSearchScreen> {
   String? _error;
   final Set<String> _sendingIds = <String>{};
   final Set<String> _sentIds = <String>{};
+  /// 已是好友的用户 id 集合，搜索时与结果比对，不显示「发送好友申请」按钮。
+  final Set<String> _friendIds = <String>{};
 
   @override
   void dispose() {
     _queryController.dispose();
     _focusNode.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadFriendIds() async {
+    try {
+      final repo = ref.read(socialRepositoryProvider);
+      final friends = await repo.getFriends();
+      if (mounted) {
+        setState(() {
+          _friendIds.clear();
+          for (final f in friends) {
+            final id = f['id']?.toString();
+            if (id != null && id.isNotEmpty) _friendIds.add(id);
+          }
+        });
+      }
+    } catch (_) {}
   }
 
   Future<void> _search(String query) async {
@@ -43,6 +61,7 @@ class _UserSearchScreenState extends ConsumerState<UserSearchScreen> {
     try {
       final repo = ref.read(socialRepositoryProvider);
       final list = await repo.searchUsers(query);
+      await _loadFriendIds();
       if (mounted) {
         setState(() {
           _results = list;
@@ -69,16 +88,28 @@ class _UserSearchScreenState extends ConsumerState<UserSearchScreen> {
           _sendingIds.remove(targetId);
           _sentIds.add(targetId);
         });
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('好友申请已发送')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            key: ValueKey('friend_sent_${DateTime.now().millisecondsSinceEpoch}'),
+            content: const Text('好友申请已发送'),
+          ),
+        );
       }
     } catch (e) {
       if (mounted) {
         setState(() => _sendingIds.remove(targetId));
         final msg = e.toString().replaceFirst('Exception: ', '');
         final is409 = msg.contains('409') || msg.contains('已发送') || msg.contains('已是好友');
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(is409 ? '已发送过申请或已是好友' : '发送失败：$msg')),
-        );
+        if (is409) {
+          setState(() => _sentIds.add(targetId));
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              key: ValueKey('friend_err_${DateTime.now().millisecondsSinceEpoch}'),
+              content: Text('发送失败：$msg'),
+            ),
+          );
+        }
       }
     }
   }
@@ -115,21 +146,31 @@ class _UserSearchScreenState extends ConsumerState<UserSearchScreen> {
               children: <Widget>[
                 Padding(
                   padding: const EdgeInsets.all(8),
-                  child: SizedBox(
-                    width: double.infinity,
-                    child: FilledButton.icon(
-                      onPressed: _loading
-                          ? null
-                          : () => _search(_queryController.text),
-                      icon: _loading
-                          ? const SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.search),
-                      label: const Text('搜索全站用户'),
-                    ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      FilledButton.icon(
+                        onPressed: _loading
+                            ? null
+                            : () => _search(_queryController.text),
+                        icon: _loading
+                            ? const SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : const Icon(Icons.search),
+                        label: const Text('搜索全站用户'),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        '发送申请后需对方在「好友申请」中接受，才能成为好友并私信',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
                   ),
                 ),
                 if (_error != null)
@@ -161,6 +202,7 @@ class _UserSearchScreenState extends ConsumerState<UserSearchScreen> {
                                 final avatarUrl = u['avatar_url']?.toString();
                                 final name = displayName.isNotEmpty ? displayName : username;
                                 final isMe = id == me.id;
+                                final isFriend = _friendIds.contains(id);
                                 final isSent = _sentIds.contains(id);
                                 final isSending = _sendingIds.contains(id);
                                 return ListTile(
@@ -187,25 +229,32 @@ class _UserSearchScreenState extends ConsumerState<UserSearchScreen> {
                                             color: theme.colorScheme.outline,
                                           ),
                                         )
-                                      : isSent
+                                      : isFriend
                                           ? Text(
-                                              '已发送',
+                                              '已是好友',
                                               style: theme.textTheme.bodySmall?.copyWith(
                                                 color: theme.colorScheme.primary,
                                               ),
                                             )
-                                          : TextButton(
-                                              onPressed: isSending
-                                                  ? null
-                                                  : () => _sendFriendRequest(id),
-                                              child: isSending
-                                                  ? const SizedBox(
-                                                      width: 20,
-                                                      height: 20,
-                                                      child: CircularProgressIndicator(strokeWidth: 2),
-                                                    )
-                                                  : const Text('发送好友申请'),
-                                            ),
+                                          : isSent
+                                              ? Text(
+                                                  '已发送',
+                                                  style: theme.textTheme.bodySmall?.copyWith(
+                                                    color: theme.colorScheme.primary,
+                                                  ),
+                                                )
+                                              : TextButton(
+                                                  onPressed: isSending
+                                                      ? null
+                                                      : () => _sendFriendRequest(id),
+                                                  child: isSending
+                                                      ? const SizedBox(
+                                                          width: 20,
+                                                          height: 20,
+                                                          child: CircularProgressIndicator(strokeWidth: 2),
+                                                        )
+                                                      : const Text('发送好友申请'),
+                                                ),
                                 );
                               },
                             ),

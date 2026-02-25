@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../chat/data/models/chat_room_model.dart';
+import '../../chat/presentation/chat_room_screen.dart';
+import '../../chat/presentation/chat_rooms_list_screen.dart';
 import '../../features/auth/presentation/login_screen.dart';
 import '../../features/auth/presentation/register_screen.dart';
 import '../../features/profile/presentation/profile_screen.dart';
@@ -34,6 +37,8 @@ class AppRoutes {
   static const String explore = '/explore';
   static const String realms = '/realms';
   static const String files = '/files';
+  static const String chatRooms = '/chat';
+  static String chatRoom(String roomId) => '/chat/$roomId';
 }
 
 /// 配置 go_router，含底部导航壳（浏览、聊天、个人）。
@@ -123,6 +128,23 @@ GoRouter createAppRouter() {
         path: AppRoutes.files,
         builder: (BuildContext context, GoRouterState state) =>
             const FilesScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.chatRooms,
+        builder: (BuildContext context, GoRouterState state) =>
+            const ChatRoomsListScreen(),
+      ),
+      GoRoute(
+        path: '/chat/:roomId',
+        builder: (BuildContext context, GoRouterState state) {
+          final roomId = state.pathParameters['roomId'] ?? '';
+          final room = state.extra as ChatRoom?;
+          if (room != null) return ChatRoomScreen(room: room);
+          return Scaffold(
+            appBar: AppBar(),
+            body: Center(child: Text('房间 $roomId 不存在')),
+          );
+        },
       ),
     ],
   );

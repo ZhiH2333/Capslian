@@ -10,6 +10,7 @@ import 'core/router/app_router.dart';
 import 'core/theme/app_theme.dart';
 import 'core/theme/theme_mode_provider.dart';
 import 'core/theme/theme_settings_provider.dart';
+import 'chat/pods/chat_room.dart';
 import 'features/direct/providers/chat_providers.dart';
 import 'features/notifications/providers/notifications_providers.dart';
 
@@ -47,6 +48,7 @@ class MolianApp extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     ref.watch(wsLifecycleProvider);
     ref.watch(pushSubscribeOnAuthProvider);
+    ref.watch(chatGlobalSyncProvider);
     final themeMode = ref.watch(themeModeProvider);
     final themeSettings = ref.watch(themeSettingsProvider);
     return MaterialApp.router(

@@ -67,13 +67,21 @@ class _FriendRequestsScreenState extends ConsumerState<FriendRequestsScreen> {
           _processingIds.remove(requestId);
           _list.removeWhere((Map<String, dynamic> r) => r['id'] == requestId);
         });
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已接受好友申请')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            key: ValueKey('accept_${DateTime.now().millisecondsSinceEpoch}'),
+            content: const Text('已接受好友申请'),
+          ),
+        );
       }
     } catch (e) {
       if (mounted) {
         setState(() => _processingIds.remove(requestId));
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('操作失败：${e.toString().replaceFirst('Exception: ', '')}')),
+          SnackBar(
+            key: ValueKey('accept_err_${DateTime.now().millisecondsSinceEpoch}'),
+            content: Text('操作失败：${e.toString().replaceFirst('Exception: ', '')}'),
+          ),
         );
       }
     }
@@ -89,13 +97,21 @@ class _FriendRequestsScreenState extends ConsumerState<FriendRequestsScreen> {
           _processingIds.remove(requestId);
           _list.removeWhere((Map<String, dynamic> r) => r['id'] == requestId);
         });
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已拒绝')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            key: ValueKey('reject_${DateTime.now().millisecondsSinceEpoch}'),
+            content: const Text('已拒绝'),
+          ),
+        );
       }
     } catch (e) {
       if (mounted) {
         setState(() => _processingIds.remove(requestId));
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('操作失败：${e.toString().replaceFirst('Exception: ', '')}')),
+          SnackBar(
+            key: ValueKey('reject_err_${DateTime.now().millisecondsSinceEpoch}'),
+            content: Text('操作失败：${e.toString().replaceFirst('Exception: ', '')}'),
+          ),
         );
       }
     }
