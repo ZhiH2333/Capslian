@@ -1,17 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:flutter_chat_kits/flutter_chat_kits.dart';
 
 import '../../../core/router/app_router.dart';
 import '../../features/auth/providers/auth_providers.dart';
 import '../../features/direct/providers/chat_providers.dart';
 import '../../features/social/providers/social_providers.dart';
-import '../data/models/chat_room_model.dart';
-import '../data/models/local_chat_message.dart';
+import '../chat_kits_backend.dart';
 import '../pods/chat_room.dart';
 
-/// 聊天 Tab 页：会话列表 + 好友列表。
-/// 流程：发送好友申请（搜索用户）→ 对方在「好友申请」中接受/拒绝 → 接受后成为好友 → 在「好友」中可发起私信。
+/// 聊天 Tab 页：会话列表（flutter_chat_kits）+ 好友列表，点击进入 ChatBody 房间页。
 class ChatRoomsListScreen extends ConsumerStatefulWidget {
   const ChatRoomsListScreen({super.key});
 
@@ -77,7 +76,7 @@ class _ChatRoomsListScreenState extends ConsumerState<ChatRoomsListScreen>
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: () {
-              ref.read(chatRoomListProvider.notifier).fetchRooms();
+              RoomManager.i.run();
               setState(() {});
             },
             tooltip: '刷新',
@@ -95,13 +94,14 @@ class _ChatRoomsListScreenState extends ConsumerState<ChatRoomsListScreen>
   }
 }
 
-/// 会话 Tab：已有聊天房间列表。
-class _ConversationsTab extends ConsumerWidget {
+/// 会话 Tab：RoomManager.i.rooms + ChatInbox，点击用 connect 打开房间页。
+class _ConversationsTab extends StatelessWidget {
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final roomsAsync = ref.watch(chatRoomListProvider);
-    return roomsAsync.when(
-      data: (List<ChatRoom> rooms) {
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: RoomManager.i,
+      builder: (BuildContext context, Widget? child) {
+        final rooms = RoomManager.i.rooms;
         if (rooms.isEmpty) {
           return const Center(
             child: Column(
@@ -117,22 +117,32 @@ class _ConversationsTab extends ConsumerWidget {
             ),
           );
         }
-        return RefreshIndicator(
-          onRefresh: () =>
-              ref.read(chatRoomListProvider.notifier).fetchRooms(),
-          child: ListView.builder(
-            itemCount: rooms.length,
-            itemBuilder: (_, int i) => _RoomTile(room: rooms[i]),
-          ),
+        return ListView.builder(
+          itemCount: rooms.length,
+          itemBuilder: (BuildContext context, int index) {
+            final room = rooms[index];
+            return InkWell(
+              onTap: () async {
+                await RoomManager.i.connect<void>(
+                  context,
+                  room,
+                  onError: (String err) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text(err)),
+                    );
+                  },
+                );
+              },
+              child: ChatInbox(room: room),
+            );
+          },
         );
       },
-      loading: () => const Center(child: CircularProgressIndicator()),
-      error: (Object err, _) => Center(child: Text('加载失败：$err')),
     );
   }
 }
 
-/// 好友 Tab：仅显示已成为好友的用户，点击发起私信（接受申请后才成为好友，才能聊天）。
+/// 好友 Tab：从 social 拉取好友，点击创建/进入私信房间后跳转聊天。
 class _FriendsTab extends ConsumerStatefulWidget {
   @override
   ConsumerState<_FriendsTab> createState() => _FriendsTabState();
@@ -175,11 +185,21 @@ class _FriendsTabState extends ConsumerState<_FriendsTab> {
 
   Future<void> _openChatWithFriend(String friendId, String friendName) async {
     if (friendId.isEmpty) return;
-    final roomNotifier = ref.read(chatRoomListProvider.notifier);
     try {
-      final room = await roomNotifier.fetchOrCreateDirectRoom(friendId);
+      final room = await ref.read(chatRoomListProvider.notifier).fetchOrCreateDirectRoom(friendId);
       if (!mounted) return;
-      context.push('/chat/${room.id}', extra: room);
+      final kitsRoom = Room.parse(chatRoomToKitsMap(room));
+      if (kitsRoom.isEmpty) return;
+      RoomManager.i.put(kitsRoom);
+      await RoomManager.i.connect<void>(
+        context,
+        kitsRoom,
+        onError: (String err) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err)));
+          }
+        },
+      );
     } catch (e) {
       if (!mounted) return;
       final errorMessage = e.toString().replaceFirst('Exception: ', '');
@@ -247,19 +267,16 @@ class _FriendsTabState extends ConsumerState<_FriendsTab> {
       onRefresh: _loadFriends,
       child: ListView.builder(
         itemCount: _friends.length,
-        itemBuilder: (_, int i) {
+        itemBuilder: (BuildContext context, int i) {
           final f = _friends[i];
           final id = f['id']?.toString() ?? '';
-          final displayName =
-              (f['display_name']?.toString() ?? '').trim();
+          final displayName = (f['display_name']?.toString() ?? '').trim();
           final username = f['username']?.toString() ?? '';
-          final title =
-              displayName.isNotEmpty ? displayName : username;
+          final title = displayName.isNotEmpty ? displayName : username;
           final avatarUrl = f['avatar_url']?.toString();
           return ListTile(
             leading: CircleAvatar(
-              backgroundColor:
-                  Theme.of(context).colorScheme.secondaryContainer,
+              backgroundColor: Theme.of(context).colorScheme.secondaryContainer,
               backgroundImage: avatarUrl != null && avatarUrl.isNotEmpty
                   ? NetworkImage(avatarUrl)
                   : null,
@@ -267,207 +284,18 @@ class _FriendsTabState extends ConsumerState<_FriendsTab> {
                   ? Text(
                       title.isNotEmpty ? title[0].toUpperCase() : '?',
                       style: TextStyle(
-                        color: Theme.of(context)
-                            .colorScheme
-                            .onSecondaryContainer,
+                        color: Theme.of(context).colorScheme.onSecondaryContainer,
                       ),
                     )
                   : null,
             ),
             title: Text(title),
-            subtitle:
-                username.isNotEmpty ? Text('@$username') : null,
+            subtitle: username.isNotEmpty ? Text('@$username') : null,
             trailing: const Icon(Icons.chat_bubble_outline),
             onTap: () => _openChatWithFriend(id, title),
           );
         },
       ),
-    );
-  }
-}
-
-/// 会话列表单项，DM 显示最新消息预览，群组显示成员数。
-class _RoomTile extends ConsumerWidget {
-  const _RoomTile({required this.room});
-
-  final ChatRoom room;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    if (room.isDirect) {
-      return _DirectRoomTile(room: room);
-    }
-    return _GroupRoomTile(room: room);
-  }
-}
-
-/// DM 会话行：头像 + 对方名称（右上角时间）+ 最新消息预览。
-class _DirectRoomTile extends ConsumerWidget {
-  const _DirectRoomTile({required this.room});
-
-  final ChatRoom room;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final lastMsgAsync = ref.watch(roomLastMessageProvider(room.id));
-    final lastMsg = lastMsgAsync.valueOrNull;
-    final preview = _buildPreview(lastMsg);
-    final timeStr = lastMsg?.createdAt != null
-        ? _formatConvTime(lastMsg!.createdAt!)
-        : '';
-    return InkWell(
-      onTap: () => context.push('/chat/${room.id}', extra: room),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            _RoomAvatar(room: room),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          room.name,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context)
-                              .textTheme
-                              .titleSmall
-                              ?.copyWith(fontWeight: FontWeight.w600),
-                        ),
-                      ),
-                      if (timeStr.isNotEmpty) ...[
-                        const SizedBox(width: 8),
-                        Text(
-                          timeStr,
-                          style: Theme.of(context)
-                              .textTheme
-                              .labelSmall
-                              ?.copyWith(
-                                color: Theme.of(context)
-                                    .colorScheme
-                                    .onSurfaceVariant,
-                              ),
-                        ),
-                      ],
-                    ],
-                  ),
-                  if (preview.isNotEmpty) ...[
-                    const SizedBox(height: 2),
-                    Text(
-                      preview,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: Theme.of(context)
-                                .colorScheme
-                                .onSurfaceVariant,
-                          ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  String _buildPreview(LocalChatMessage? msg) {
-    if (msg == null) return '';
-    if (msg.isDeleted) return '[消息已撤回]';
-    if (msg.content.isNotEmpty) return msg.content;
-    if (msg.attachments.isNotEmpty) return '[图片]';
-    return '';
-  }
-
-  /// 格式化会话列表时间：今天显示 HH:mm，昨天显示「昨天」，更早显示 MM/dd。
-  String _formatConvTime(String iso) {
-    final dt = DateTime.tryParse(iso);
-    if (dt == null) return '';
-    final local = dt.toLocal();
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final msgDay = DateTime(local.year, local.month, local.day);
-    if (msgDay == today) {
-      return '${local.hour.toString().padLeft(2, '0')}:'
-          '${local.minute.toString().padLeft(2, '0')}';
-    }
-    if (today.difference(msgDay).inDays == 1) return '昨天';
-    return '${local.month.toString().padLeft(2, '0')}/'
-        '${local.day.toString().padLeft(2, '0')}';
-  }
-}
-
-/// 群组会话行：头像 + 名称 + 成员数。
-class _GroupRoomTile extends StatelessWidget {
-  const _GroupRoomTile({required this.room});
-
-  final ChatRoom room;
-
-  @override
-  Widget build(BuildContext context) {
-    return ListTile(
-      leading: _RoomAvatar(room: room),
-      title: Text(
-        room.name,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-      ),
-      subtitle: room.memberCount > 0
-          ? Text(
-              '${room.memberCount} 位成员',
-              style: Theme.of(context).textTheme.bodySmall,
-            )
-          : null,
-      trailing: const Icon(Icons.chevron_right),
-      onTap: () => context.push('/chat/${room.id}', extra: room),
-    );
-  }
-}
-
-/// 房间头像：优先显示 avatarUrl，否则显示名称首字母。
-class _RoomAvatar extends StatelessWidget {
-  const _RoomAvatar({required this.room});
-
-  final ChatRoom room;
-
-  @override
-  Widget build(BuildContext context) {
-    final initial =
-        room.name.isNotEmpty ? room.name[0].toUpperCase() : '?';
-    return CircleAvatar(
-      backgroundColor: Theme.of(context).colorScheme.secondaryContainer,
-      child: room.avatarUrl != null
-          ? ClipOval(
-              child: Image.network(
-                room.avatarUrl!,
-                width: 40,
-                height: 40,
-                fit: BoxFit.cover,
-                errorBuilder: (_, __, ___) => Text(
-                  initial,
-                  style: TextStyle(
-                    color:
-                        Theme.of(context).colorScheme.onSecondaryContainer,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-            )
-          : Text(
-              initial,
-              style: TextStyle(
-                color: Theme.of(context).colorScheme.onSecondaryContainer,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
     );
   }
 }

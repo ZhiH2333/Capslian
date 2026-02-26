@@ -55,7 +55,13 @@ class AppTheme {
             foregroundColor: colorScheme.onSurface,
             iconTheme: IconThemeData(color: colorScheme.onSurface),
           )
-        : const AppBarTheme(centerTitle: true);
+        : AppBarTheme(
+            centerTitle: true,
+            backgroundColor: colorScheme.surface,
+            foregroundColor: colorScheme.onSurface,
+            iconTheme: IconThemeData(color: colorScheme.onSurface),
+            surfaceTintColor: colorScheme.surface,
+          );
 
     final Color cardColor = colorScheme.surfaceContainer
         .withOpacity(settings.cardTransparency);
@@ -81,14 +87,25 @@ class AppTheme {
       minLeadingWidth: 48,
     );
 
+    final InputDecorationTheme inputDecorationTheme = InputDecorationTheme(
+      filled: true,
+      fillColor: colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+      labelStyle: TextStyle(color: colorScheme.onSurfaceVariant),
+      hintStyle: TextStyle(color: colorScheme.onSurfaceVariant),
+      border: const OutlineInputBorder(),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+    );
+
     return ThemeData(
       useMaterial3: true,
       colorScheme: colorScheme,
+      scaffoldBackgroundColor: colorScheme.surface,
       textTheme: textTheme,
       appBarTheme: appBarTheme,
       cardTheme: cardTheme,
       iconTheme: iconTheme,
       listTileTheme: listTileTheme,
+      inputDecorationTheme: inputDecorationTheme,
     );
   }
 

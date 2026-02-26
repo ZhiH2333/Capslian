@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../chat/data/models/chat_room_model.dart';
-import '../../chat/presentation/chat_room_screen.dart';
 import '../../chat/presentation/chat_rooms_list_screen.dart';
 import '../../features/auth/presentation/login_screen.dart';
 import '../../features/auth/presentation/register_screen.dart';
@@ -11,7 +9,7 @@ import '../../features/posts/data/models/post_model.dart';
 import '../../features/posts/presentation/create_post_screen.dart';
 import '../../features/posts/presentation/post_comments_screen.dart';
 import '../../features/posts/presentation/post_detail_screen.dart';
-import '../../features/direct/presentation/chat_screen.dart';
+import '../../features/direct/presentation/direct_to_chat_redirect_screen.dart';
 import '../../features/direct/presentation/friend_requests_screen.dart';
 import '../../features/direct/presentation/user_search_screen.dart';
 import '../../features/discovery/presentation/explore_screen.dart';
@@ -160,25 +158,16 @@ GoRouter createAppRouter() {
         builder: (BuildContext context, GoRouterState state) {
           final peerId = state.pathParameters['peerId'] ?? '';
           final peerName = state.uri.queryParameters['peerName'];
-          return ChatScreen(peerUserId: peerId, peerDisplayName: peerName);
+          return DirectToChatRedirectScreen(
+            peerId: peerId,
+            peerDisplayName: peerName,
+          );
         },
       ),
       GoRoute(
         path: AppRoutes.chatRooms,
         builder: (BuildContext context, GoRouterState state) =>
             const ChatRoomsListScreen(),
-      ),
-      GoRoute(
-        path: '/chat/:roomId',
-        builder: (BuildContext context, GoRouterState state) {
-          final roomId = state.pathParameters['roomId'] ?? '';
-          final room = state.extra as ChatRoom?;
-          if (room != null) return ChatRoomScreen(room: room);
-          return Scaffold(
-            appBar: AppBar(),
-            body: Center(child: Text('房间 $roomId 不存在')),
-          );
-        },
       ),
     ],
   );

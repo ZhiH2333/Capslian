@@ -32,8 +32,18 @@ class AppScaffold extends StatelessWidget {
     final useBackground = !isNoBackground && !wide;
     final appBarHeight = appBar != null ? kToolbarHeight : 0.0;
     final topPadding = MediaQuery.paddingOf(context).top;
+    final ColorScheme colorScheme = Theme.of(context).colorScheme;
+    final Color scaffoldBg = useBackground
+        ? colorScheme.surface
+        : Colors.transparent;
+    final Widget bodyContent = useBackground
+        ? ColoredBox(
+            color: colorScheme.surface,
+            child: body,
+          )
+        : body;
     final scaffold = Scaffold(
-      backgroundColor: Colors.transparent,
+      backgroundColor: scaffoldBg,
       extendBody: true,
       extendBodyBehindAppBar: true,
       appBar: appBar,
@@ -50,7 +60,7 @@ class AppScaffold extends StatelessWidget {
         child: Column(
           children: <Widget>[
             SizedBox(height: appBarHeight + topPadding),
-            Expanded(child: body),
+            Expanded(child: bodyContent),
           ],
         ),
       ),
