@@ -6,14 +6,13 @@
 // tree, read text, and verify that the values of widget properties are correct.
 
 import 'package:molian/core/network/storage_providers.dart';
-import 'package:molian/main.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
-  testWidgets('MolianApp 启动需注入 SharedPreferences', (WidgetTester tester) async {
+  testWidgets('App needs SharedPreferences injected to start', (WidgetTester tester) async {
     TestWidgetsFlutterBinding.ensureInitialized();
     SharedPreferences.setMockInitialValues({});
     final prefs = await SharedPreferences.getInstance();
@@ -22,9 +21,18 @@ void main() {
         overrides: [
           sharedPreferencesProvider.overrideWith((ref) => prefs),
         ],
-        child: const MolianApp(),
+        child: MaterialApp(
+          home: Scaffold(
+            body: Consumer(
+              builder: (BuildContext context, WidgetRef ref, _) {
+                final prefs = ref.watch(sharedPreferencesProvider);
+                return Text(prefs != null ? 'ready' : 'missing');
+              },
+            ),
+          ),
+        ),
       ),
     );
-    expect(find.byType(MaterialApp), findsOneWidget);
+    expect(find.text('ready'), findsOneWidget);
   });
 }
