@@ -117,10 +117,10 @@ class _ChatKitsInitializerState extends ConsumerState<ChatKitsInitializer> {
                     ? NetworkImage(profile.photo!)
                     : null,
                 child: profile.photo == null || profile.photo!.isEmpty
-                    ? Text(profile.nameSymbol)
+                    ? Text(profile.nameSymbol ?? '')
                     : null,
               ),
-              title: Text(profile.name.isEmpty ? room.id : profile.name),
+              title: Text((profile.name ?? '').isEmpty ? room.id : (profile.name ?? '')),
               subtitle: Text(room.formattedLastMessage(isTyping: typing != null && !typing.isEmpty)),
             );
           },
@@ -143,8 +143,8 @@ class _ChatKitsInitializerState extends ConsumerState<ChatKitsInitializer> {
           chatAppbarBuilder: (BuildContext context, ChatAppbarConfigs configs) {
             final room = configs.manager.room;
             final String roomName = room.extra['roomName']?.toString().trim() ?? '';
-            final String titleText = configs.profile.name.isNotEmpty
-                ? configs.profile.name
+            final String titleText = (configs.profile.name ?? '').isNotEmpty
+                ? (configs.profile.name ?? '')
                 : roomName.isNotEmpty
                     ? roomName
                     : room.id;
@@ -201,7 +201,7 @@ class _ChatKitsInitializerState extends ConsumerState<ChatKitsInitializer> {
     if (uid.isNotEmpty) {
       RoomManager.i.attach(uid);
     } else {
-      RoomManager.i.deattach();
+      RoomManager.i.detach();
     }
     if (mounted) setState(() => _initDone = true);
   }
@@ -215,7 +215,7 @@ class _ChatKitsInitializerState extends ConsumerState<ChatKitsInitializer> {
         if (uid.isNotEmpty) {
           RoomManager.i.attach(uid);
         } else {
-          RoomManager.i.deattach();
+          RoomManager.i.detach();
         }
       });
     });
