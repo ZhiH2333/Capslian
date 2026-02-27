@@ -209,6 +209,17 @@ class _FriendsTabState extends ConsumerState<_FriendsTab> {
       final repo = ref.read(socialRepositoryProvider);
       await repo.removeFriend(friendId);
       if (mounted) {
+        final me = ref.read(authStateProvider).valueOrNull?.id ?? '';
+        for (final room in RoomManager.i.rooms) {
+          if (room.isGroup) continue;
+          final participants = room.participants.toList();
+          if (participants.length == 2 &&
+              participants.contains(friendId) &&
+              participants.contains(me)) {
+            RoomManager.i.pop(room.id);
+            break;
+          }
+        }
         final messenger = ScaffoldMessenger.of(context);
         messenger.removeCurrentSnackBar();
         messenger.showSnackBar(

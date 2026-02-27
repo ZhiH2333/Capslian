@@ -111,16 +111,22 @@ class _ChatKitsInitializerState extends ConsumerState<ChatKitsInitializer> {
         normalizer: MolianChatNormalizer(),
         uiConfigs: ChatUiConfigs(
           directInboxBuilder: (BuildContext context, DirectRoom room, profile, status, typing) {
+            final String roomName = room.extra['roomName']?.toString().trim() ?? '';
+            final String displayName = (profile.name ?? '').trim().isNotEmpty
+                ? (profile.name ?? '').trim()
+                : roomName.isNotEmpty
+                    ? roomName
+                    : room.id;
             return ListTile(
               leading: CircleAvatar(
                 backgroundImage: profile.photo != null && profile.photo!.isNotEmpty
                     ? NetworkImage(profile.photo!)
                     : null,
                 child: profile.photo == null || profile.photo!.isEmpty
-                    ? Text(profile.nameSymbol ?? '')
+                    ? Text(displayName.isNotEmpty ? displayName[0].toUpperCase() : '?')
                     : null,
               ),
-              title: Text((profile.name ?? '').isEmpty ? room.id : (profile.name ?? '')),
+              title: Text(displayName),
               subtitle: Text(room.formattedLastMessage(isTyping: typing != null && !typing.isEmpty)),
             );
           },
@@ -221,6 +227,10 @@ class _ChatKitsInitializerState extends ConsumerState<ChatKitsInitializer> {
     });
     ref.listen(wsRawMessagesProvider, (Object? prev, AsyncValue<Map<String, dynamic>> next) {
       next.whenData((Map<String, dynamic> payload) {
+        final uid = ref.read(authStateProvider).valueOrNull?.id ?? MolianChatBackend.uid;
+        if (uid.isNotEmpty && RoomManager.i.me != uid) {
+          RoomManager.i.attach(uid);
+        }
         String roomId = (payload['room_id'] as Object?)?.toString() ??
             (payload['chat_room_id'] as Object?)?.toString() ?? '';
         if (roomId.isEmpty && payload['message'] is Map) {
@@ -492,6 +502,7 @@ class _ChatInputBar extends StatelessWidget {
     return SafeArea(
       top: false,
       child: Container(
+        margin: const EdgeInsets.only(top: 12),
         padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
         decoration: BoxDecoration(
           color: theme.colorScheme.surface,

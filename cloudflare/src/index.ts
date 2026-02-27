@@ -39,6 +39,11 @@ export default {
       const stub = env.CHAT.get(id);
       return stub.fetch(request);
     }
+    if (pathname.startsWith("/broadcast/")) {
+      const id = env.CHAT.idFromName("default");
+      const stub = env.CHAT.get(id);
+      return stub.fetch(request);
+    }
     // /messager/chat/:roomId/broadcast 由 app.ts 内部调用，转发到 DO
     if (pathname.startsWith("/internal/chat/broadcast/")) {
       const roomId = pathname.replace("/internal/chat/broadcast/", "");

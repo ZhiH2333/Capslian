@@ -1388,7 +1388,7 @@ app.post("/messager/chat/:roomId/messages", async (c) => {
     const content = String(body?.content ?? "").trim();
     const nonce = String(body?.nonce ?? "").trim();
     const attachments = JSON.stringify(Array.isArray(body?.attachments) ? body.attachments : []);
-    const id = nonce.isNotEmpty ? nonce : uuid();
+    const id = nonce.length > 0 ? nonce : uuid();
     await c.env.molian_db
       .prepare(
         `INSERT INTO chat_room_messages
@@ -1397,7 +1397,7 @@ app.post("/messager/chat/:roomId/messages", async (c) => {
       )
       .bind(
         id, roomId, userId, content,
-        nonce.isNotEmpty ? nonce : null, attachments,
+        nonce.length > 0 ? nonce : null, attachments,
         body?.reply_id ?? null, body?.forwarded_id ?? null,
         body?.meta ? JSON.stringify(body.meta) : null
       )
