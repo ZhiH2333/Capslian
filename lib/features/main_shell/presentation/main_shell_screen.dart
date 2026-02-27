@@ -11,7 +11,7 @@ import '../../../core/responsive.dart';
 import '../../../core/router/app_router.dart';
 import '../../auth/data/models/user_model.dart';
 import '../../auth/providers/auth_providers.dart';
-import '../../../chat/presentation/chat_rooms_list_screen.dart';
+import '../../chat/presentation/chat_rooms_list_screen.dart';
 import '../../posts/presentation/home_screen.dart';
 import '../../profile/presentation/profile_screen.dart';
 

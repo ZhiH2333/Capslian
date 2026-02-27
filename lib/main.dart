@@ -10,7 +10,6 @@ import 'core/router/app_router.dart';
 import 'core/theme/app_theme.dart';
 import 'core/theme/theme_mode_provider.dart';
 import 'core/theme/theme_settings_provider.dart';
-import 'chat/chat_kits_initializer.dart';
 import 'features/direct/providers/chat_providers.dart';
 import 'features/notifications/providers/notifications_providers.dart';
 
@@ -55,9 +54,8 @@ class MolianApp extends ConsumerWidget {
     ref.watch(pushSubscribeOnAuthProvider);
     final themeMode = ref.watch(themeModeProvider);
     final themeSettings = ref.watch(themeSettingsProvider);
-    return ChatKitsInitializer(
-      child: HeroControllerScope.none(
-        child: MaterialApp.router(
+    return HeroControllerScope.none(
+      child: MaterialApp.router(
           title: 'Molian V1',
           theme: AppTheme.light(themeSettings),
           darkTheme: AppTheme.dark(themeSettings),
@@ -65,7 +63,6 @@ class MolianApp extends ConsumerWidget {
           routerConfig: createAppRouter(),
           debugShowCheckedModeBanner: false,
         ),
-      ),
     );
   }
 }

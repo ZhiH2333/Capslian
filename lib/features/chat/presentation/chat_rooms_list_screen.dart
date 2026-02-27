@@ -1,16 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:flutter_chat_kits/flutter_chat_kits.dart';
 
 import '../../../core/router/app_router.dart';
-import '../../features/auth/providers/auth_providers.dart';
-import '../../features/direct/providers/chat_providers.dart';
-import '../../features/social/providers/social_providers.dart';
-import '../chat_kits_backend.dart';
-import '../pods/chat_room.dart';
+import '../../auth/providers/auth_providers.dart';
+import '../../direct/providers/chat_providers.dart' as ws_providers;
+import '../../social/providers/social_providers.dart';
+import '../data/models/chat_room_model.dart';
+import '../providers/chat_providers.dart';
 
-/// 聊天 Tab 页：会话列表（flutter_chat_kits）+ 好友列表，点击进入 ChatBody 房间页。
+/// 聊天 Tab 页：会话列表 + 好友列表；点击进入自研 ChatRoomScreen。
 class ChatRoomsListScreen extends ConsumerStatefulWidget {
   const ChatRoomsListScreen({super.key});
 
@@ -48,7 +47,7 @@ class _ChatRoomsListScreenState extends ConsumerState<ChatRoomsListScreen>
     if (!_didConnectWs) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted || _didConnectWs) return;
-        ref.read(webSocketServiceProvider).connect();
+        ref.read(ws_providers.webSocketServiceProvider).connect();
         if (mounted) setState(() => _didConnectWs = true);
       });
     }
@@ -62,7 +61,7 @@ class _ChatRoomsListScreenState extends ConsumerState<ChatRoomsListScreen>
             Tab(text: '好友'),
           ],
         ),
-        actions: [
+        actions: <Widget>[
           IconButton(
             icon: const Icon(Icons.mail_outline),
             tooltip: '好友申请',
@@ -76,7 +75,7 @@ class _ChatRoomsListScreenState extends ConsumerState<ChatRoomsListScreen>
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: () {
-              RoomManager.i.run();
+              ref.invalidate(chatRoomListProvider);
               setState(() {});
             },
             tooltip: '刷新',
@@ -85,7 +84,7 @@ class _ChatRoomsListScreenState extends ConsumerState<ChatRoomsListScreen>
       ),
       body: TabBarView(
         controller: _tabController,
-        children: [
+        children: <Widget>[
           _ConversationsTab(),
           _FriendsTab(),
         ],
@@ -94,19 +93,17 @@ class _ChatRoomsListScreenState extends ConsumerState<ChatRoomsListScreen>
   }
 }
 
-/// 会话 Tab：RoomManager.i.rooms + ChatInbox，点击用 connect 打开房间页。
-class _ConversationsTab extends StatelessWidget {
+class _ConversationsTab extends ConsumerWidget {
   @override
-  Widget build(BuildContext context) {
-    return ListenableBuilder(
-      listenable: RoomManager.i,
-      builder: (BuildContext context, Widget? child) {
-        final rooms = RoomManager.i.rooms;
+  Widget build(BuildContext context, WidgetRef ref) {
+    final roomsAsync = ref.watch(chatRoomListProvider);
+    return roomsAsync.when(
+      data: (List<ChatRoom> rooms) {
         if (rooms.isEmpty) {
           return const Center(
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
-              children: [
+              children: <Widget>[
                 Text('暂无会话'),
                 SizedBox(height: 8),
                 Text(
@@ -121,28 +118,52 @@ class _ConversationsTab extends StatelessWidget {
           itemCount: rooms.length,
           itemBuilder: (BuildContext context, int index) {
             final room = rooms[index];
-            return InkWell(
-              onTap: () async {
-                await RoomManager.i.connect<void>(
-                  context,
-                  room,
-                  onError: (String err) {
-                    final messenger = ScaffoldMessenger.of(context);
-                    messenger.clearSnackBars();
-                    messenger.showSnackBar(SnackBar(key: const ValueKey('chat_connect_err'), content: Text(err)));
-                  },
-                );
-              },
-              child: ChatInbox(room: room),
+            final title = room.name.isNotEmpty ? room.name : room.id;
+            return ListTile(
+              leading: CircleAvatar(
+                backgroundColor: Theme.of(context).colorScheme.secondaryContainer,
+                backgroundImage: room.avatarUrl != null && room.avatarUrl!.isNotEmpty
+                    ? NetworkImage(room.avatarUrl!)
+                    : null,
+                child: room.avatarUrl == null || room.avatarUrl!.isEmpty
+                    ? Text(
+                        title.isNotEmpty ? title[0].toUpperCase() : '?',
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.onSecondaryContainer,
+                        ),
+                      )
+                    : null,
+              ),
+              title: Text(title),
+              subtitle: room.lastMessageAt != null
+                  ? Text(room.lastMessageAt!)
+                  : null,
+              onTap: () => context.push(
+                AppRoutes.chatRoom(room.id),
+                extra: <String, String>{'title': title},
+              ),
             );
           },
         );
       },
+      loading: () => const Center(child: CircularProgressIndicator()),
+      error: (Object err, StackTrace _) => Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: <Widget>[
+            Text(err.toString()),
+            const SizedBox(height: 16),
+            TextButton(
+              onPressed: () => ref.invalidate(chatRoomListProvider),
+              child: const Text('重试'),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
 
-/// 好友 Tab：从 social 拉取好友，点击创建/进入私信房间后跳转聊天。
 class _FriendsTab extends ConsumerStatefulWidget {
   @override
   ConsumerState<_FriendsTab> createState() => _FriendsTabState();
@@ -189,7 +210,7 @@ class _FriendsTabState extends ConsumerState<_FriendsTab> {
       builder: (BuildContext ctx) => AlertDialog(
         title: const Text('删除好友'),
         content: Text('确定删除好友「$friendName」吗？删除后需重新发送好友申请才能恢复。'),
-        actions: [
+        actions: <Widget>[
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),
             child: const Text('取消'),
@@ -209,21 +230,14 @@ class _FriendsTabState extends ConsumerState<_FriendsTab> {
       final repo = ref.read(socialRepositoryProvider);
       await repo.removeFriend(friendId);
       if (mounted) {
-        final me = ref.read(authStateProvider).valueOrNull?.id ?? '';
-        for (final room in RoomManager.i.rooms) {
-          if (room.isGroup) continue;
-          final participants = room.participants.toList();
-          if (participants.length == 2 &&
-              participants.contains(friendId) &&
-              participants.contains(me)) {
-            RoomManager.i.pop(room.id);
-            break;
-          }
-        }
+        ref.invalidate(chatRoomListProvider);
         final messenger = ScaffoldMessenger.of(context);
         messenger.clearSnackBars();
         messenger.showSnackBar(
-          SnackBar(key: const ValueKey('chat_friend_removed'), content: Text('已删除好友（${friendName.trim().isNotEmpty ? friendName : friendId}）')),
+          SnackBar(
+            key: const ValueKey<String>('chat_friend_removed'),
+            content: Text('已删除好友（${friendName.trim().isNotEmpty ? friendName : friendId}）'),
+          ),
         );
         _loadFriends();
       }
@@ -232,7 +246,10 @@ class _FriendsTabState extends ConsumerState<_FriendsTab> {
         final messenger = ScaffoldMessenger.of(context);
         messenger.clearSnackBars();
         messenger.showSnackBar(
-          SnackBar(key: const ValueKey('chat_friend_remove_fail'), content: Text('删除失败：${e.toString().replaceFirst('Exception: ', '')}')),
+          SnackBar(
+            key: const ValueKey<String>('chat_friend_remove_fail'),
+            content: Text('删除失败：${e.toString().replaceFirst('Exception: ', '')}'),
+          ),
         );
       }
     }
@@ -243,27 +260,8 @@ class _FriendsTabState extends ConsumerState<_FriendsTab> {
     try {
       final room = await ref.read(chatRoomListProvider.notifier).fetchOrCreateDirectRoom(friendId);
       if (!mounted) return;
-      final kitsRoom = Room.parse(chatRoomToKitsMap(room, directPeerId: friendId));
-      if (kitsRoom.isEmpty) {
-        if (mounted) {
-          final messenger = ScaffoldMessenger.of(context);
-          messenger.clearSnackBars();
-          messenger.showSnackBar(SnackBar(key: const ValueKey('chat_open_room_fail'), content: const Text('无法打开会话，请稍后重试')));
-        }
-        return;
-      }
-      RoomManager.i.put(kitsRoom);
-      await RoomManager.i.connect<void>(
-        context,
-        kitsRoom,
-        onError: (String err) {
-          if (mounted) {
-            final messenger = ScaffoldMessenger.of(context);
-            messenger.clearSnackBars();
-            messenger.showSnackBar(SnackBar(key: const ValueKey('chat_connect_err_2'), content: Text(err)));
-          }
-        },
-      );
+      final title = room.name.isNotEmpty ? room.name : friendName;
+      context.push(AppRoutes.chatRoom(room.id), extra: <String, String>{'title': title});
     } catch (e) {
       if (!mounted) return;
       final errorMessage = e.toString().replaceFirst('Exception: ', '');
@@ -272,7 +270,7 @@ class _FriendsTabState extends ConsumerState<_FriendsTab> {
         builder: (BuildContext ctx) => AlertDialog(
           title: const Text('无法发起会话'),
           content: Text(errorMessage),
-          actions: [
+          actions: <Widget>[
             FilledButton(
               onPressed: () => Navigator.of(ctx).pop(),
               child: const Text('确定'),
@@ -292,7 +290,7 @@ class _FriendsTabState extends ConsumerState<_FriendsTab> {
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
-          children: [
+          children: <Widget>[
             Text('加载失败：$_error', textAlign: TextAlign.center),
             const SizedBox(height: 16),
             TextButton(
@@ -307,7 +305,7 @@ class _FriendsTabState extends ConsumerState<_FriendsTab> {
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
-          children: [
+          children: <Widget>[
             const Text('暂无好友'),
             const SizedBox(height: 8),
             Text(
@@ -360,11 +358,11 @@ class _FriendsTabState extends ConsumerState<_FriendsTab> {
               onSelected: (String value) {
                 if (value == 'delete') _confirmRemoveFriend(id, title);
               },
-              itemBuilder: (BuildContext context) => [
+              itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
                 const PopupMenuItem<String>(
                   value: 'delete',
                   child: Row(
-                    children: [
+                    children: <Widget>[
                       Icon(Icons.person_remove, size: 20),
                       SizedBox(width: 12),
                       Text('删除好友'),

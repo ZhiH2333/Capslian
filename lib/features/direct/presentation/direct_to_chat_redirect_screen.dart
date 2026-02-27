@@ -1,13 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_chat_kits/flutter_chat_kits.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../../chat/chat_kits_backend.dart';
-import '../../../chat/pods/chat_room.dart';
 import '../../../core/router/app_router.dart';
+import '../../chat/providers/chat_providers.dart';
 
-/// /direct/:peerId 重定向：拉取或创建私信房间后，用 flutter_chat_kits 打开聊天页，关闭后返回会话列表。
+/// /direct/:peerId 重定向：拉取或创建私信房间后跳转到 ChatRoomScreen。
 class DirectToChatRedirectScreen extends ConsumerStatefulWidget {
   const DirectToChatRedirectScreen({
     super.key,
@@ -41,24 +39,13 @@ class _DirectToChatRedirectScreenState
     try {
       final room = await ref.read(chatRoomListProvider.notifier).fetchOrCreateDirectRoom(widget.peerId);
       if (!mounted) return;
-      final kitsRoom = Room.parse(chatRoomToKitsMap(room, directPeerId: widget.peerId));
-      if (kitsRoom.isEmpty) {
-        if (mounted) context.go(AppRoutes.chatRooms);
-        return;
-      }
-      RoomManager.i.put(kitsRoom);
-      await RoomManager.i.connect<void>(
-        context,
-        kitsRoom,
-        onError: (String err) {
-          if (mounted) setState(() => _error = err);
-        },
-      );
+      final title = room.name.isNotEmpty ? room.name : (widget.peerDisplayName ?? widget.peerId);
+      context.push(AppRoutes.chatRoom(room.id), extra: <String, String>{'title': title});
+      if (mounted) context.pop();
     } catch (e) {
       if (mounted) setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
       return;
     }
-    if (mounted) context.go(AppRoutes.chatRooms);
   }
 
   @override
@@ -69,7 +56,7 @@ class _DirectToChatRedirectScreenState
         body: Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
-            children: [
+            children: <Widget>[
               Text(_error!, textAlign: TextAlign.center),
               const SizedBox(height: 16),
               FilledButton(

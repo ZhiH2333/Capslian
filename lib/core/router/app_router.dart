@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../chat/presentation/chat_rooms_list_screen.dart';
+import '../../features/chat/presentation/chat_rooms_list_screen.dart';
+import '../../features/chat/presentation/chat_room_screen.dart';
 import '../../features/auth/presentation/login_screen.dart';
 import '../../features/auth/presentation/register_screen.dart';
 import '../../features/profile/presentation/profile_screen.dart';
@@ -168,6 +169,17 @@ GoRouter createAppRouter() {
         path: AppRoutes.chatRooms,
         builder: (BuildContext context, GoRouterState state) =>
             const ChatRoomsListScreen(),
+      ),
+      GoRoute(
+        path: '/chat/:roomId',
+        builder: (BuildContext context, GoRouterState state) {
+          final roomId = state.pathParameters['roomId'] ?? '';
+          final extra = state.extra is Map<String, String>
+              ? state.extra as Map<String, String>
+              : null;
+          final title = extra?['title'];
+          return ChatRoomScreen(roomId: roomId, roomTitle: title);
+        },
       ),
     ],
   );
