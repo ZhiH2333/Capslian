@@ -170,10 +170,20 @@ class MolianChatMessageDelegate implements ChatMessageDelegate {
       if (value['replyId'] != null && (value['replyId'] as String).isNotEmpty)
         'reply_id': value['replyId'],
     };
-    await dio.post<Map<String, dynamic>>(
+    final res = await dio.post<Map<String, dynamic>>(
       ApiConstants.messagerChatMessages(roomId),
       data: body,
     );
+    final msgJson = res.data?['message'] as Map<String, dynamic>?;
+    if (msgJson != null) {
+      try {
+        final sn = SnChatMessage.fromJson(msgJson);
+        final msg = Message.parse(snMessageToKitsMap(sn));
+        if (!msg.isEmpty) {
+          appendOrUpdateMessage(roomId, msg, clientNonce: msgId, senderId: uid);
+        }
+      } catch (_) {}
+    }
   }
 
   @override

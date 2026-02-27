@@ -501,60 +501,120 @@ class _ChatInputBar extends StatelessWidget {
     final theme = Theme.of(context);
     return SafeArea(
       top: false,
-      child: Container(
-        margin: const EdgeInsets.only(top: 12),
-        padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-        decoration: BoxDecoration(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 8, 12, 16),
+        child: Material(
+          elevation: 2,
+          shadowColor: theme.shadowColor.withValues(alpha: 0.15),
+          borderRadius: BorderRadius.circular(24),
           color: theme.colorScheme.surface,
-          border: Border(
-            top: BorderSide(color: theme.dividerColor.withValues(alpha: 0.4)),
-          ),
-        ),
-        child: Row(
-          children: [
-            IconButton(
-              onPressed: configs.onSendImages,
-              icon: const Icon(Icons.image_outlined),
-            ),
-            Expanded(
-              child: TextField(
-                controller: configs.editor,
-                minLines: 1,
-                maxLines: 4,
-                textInputAction: TextInputAction.send,
-                onSubmitted: (_) => configs.onSendText(),
-                decoration: InputDecoration(
-                  hintText: '输入消息',
-                  isDense: true,
-                  filled: true,
-                  fillColor: theme.colorScheme.surfaceContainerHighest
-                      .withValues(alpha: 0.6),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(16),
-                    borderSide: BorderSide.none,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+            child: Row(
+              children: [
+                IconButton(
+                  onPressed: configs.onSendImages,
+                  icon: const Icon(Icons.image_outlined),
+                ),
+                Expanded(
+                  child: TextField(
+                    controller: configs.editor,
+                    minLines: 1,
+                    maxLines: 4,
+                    textInputAction: TextInputAction.send,
+                    onSubmitted: (_) => configs.onSendText(),
+                    decoration: InputDecoration(
+                      hintText: '输入消息',
+                      isDense: true,
+                      filled: true,
+                      fillColor: theme.colorScheme.surfaceContainerHighest
+                          .withValues(alpha: 0.6),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(16),
+                        borderSide: BorderSide.none,
+                      ),
+                    ),
                   ),
                 ),
-              ),
+                const SizedBox(width: 8),
+                ListenableBuilder(
+                  listenable: configs.editor,
+                  builder: (context, child) {
+                    final enabled = configs.editor.text.trim().isNotEmpty;
+                    return IconButton(
+                      onPressed: enabled ? configs.onSendText : null,
+                      icon: const Icon(Icons.send),
+                    );
+                  },
+                ),
+              ],
             ),
-            const SizedBox(width: 8),
-            ListenableBuilder(
-              listenable: configs.editor,
-              builder: (context, child) {
-                final enabled = configs.editor.text.trim().isNotEmpty;
-                return IconButton(
-                  onPressed: enabled ? configs.onSendText : null,
-                  icon: const Icon(Icons.send),
-                );
-              },
-            ),
-          ],
+          ),
         ),
       ),
     );
   }
 }
 
-/// 单聊房间页：AppBar + ChatBody。
+/// 聊天内容区：消息列表带底部留白，最新消息在输入面板上方可见；回复预览 + 输入栏与 ChatBody 一致。
+class _ChatBodyWithFloatingInput extends StatelessWidget {
+  const _ChatBodyWithFloatingInput({required this.manager});
+
+  final ChatManager manager;
+
+  @override
+  Widget build(BuildContext context) {
+    final i = RoomManager.i.uiConfigs;
+    return Column(
+      children: [
+        Expanded(
+          child: Padding(
+            padding: const EdgeInsets.only(bottom: 24),
+            child: ChatBoard(manager: manager),
+          ),
+        ),
+        ListenableBuilder(
+          listenable: manager,
+          builder: (_, __) {
+            final reply = manager.replyMsg;
+            if (reply == null || i.replayMessageReplyBuilder == null) {
+              return const SizedBox.shrink();
+            }
+            return i.replayMessageReplyBuilder!(
+              context,
+              reply,
+              () => manager.reply(null),
+            );
+          },
+        ),
+        ListenableBuilder(
+          listenable: manager,
+          builder: (_, __) {
+            if (manager.room.isLeaveByMe) {
+              return i.leaveFromRoomBuilder != null
+                  ? i.leaveFromRoomBuilder!(context)
+                  : Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+                      child: Text("You're unable to send message", style: Theme.of(context).textTheme.bodyMedium),
+                    );
+            }
+            if (manager.room.isBlockByMe) {
+              return i.blockedInputBuilder != null
+                  ? i.blockedInputBuilder!(context)
+                  : Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+                      child: Text("You're unable to send message", style: Theme.of(context).textTheme.bodyMedium),
+                    );
+            }
+            return ChatInput(manager: manager);
+          },
+        ),
+      ],
+    );
+  }
+}
+
+/// 单聊房间页：AppBar + 带底部留白的 ChatBody + 浮动输入。
 class _ChatRoomPage extends StatefulWidget {
   const _ChatRoomPage({required this.manager});
 
@@ -581,7 +641,7 @@ class _ChatRoomPageState extends State<_ChatRoomPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: ChatAppbar(manager: widget.manager),
-      body: ChatBody(manager: widget.manager),
+      body: _ChatBodyWithFloatingInput(manager: widget.manager),
     );
   }
 }

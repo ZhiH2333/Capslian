@@ -128,8 +128,8 @@ class _ConversationsTab extends StatelessWidget {
                   room,
                   onError: (String err) {
                     final messenger = ScaffoldMessenger.of(context);
-                    messenger.removeCurrentSnackBar();
-                    messenger.showSnackBar(SnackBar(content: Text(err)));
+                    messenger.clearSnackBars();
+                    messenger.showSnackBar(SnackBar(key: const ValueKey('chat_connect_err'), content: Text(err)));
                   },
                 );
               },
@@ -221,18 +221,18 @@ class _FriendsTabState extends ConsumerState<_FriendsTab> {
           }
         }
         final messenger = ScaffoldMessenger.of(context);
-        messenger.removeCurrentSnackBar();
+        messenger.clearSnackBars();
         messenger.showSnackBar(
-          SnackBar(content: Text('已删除好友（${friendName.trim().isNotEmpty ? friendName : friendId}）')),
+          SnackBar(key: const ValueKey('chat_friend_removed'), content: Text('已删除好友（${friendName.trim().isNotEmpty ? friendName : friendId}）')),
         );
         _loadFriends();
       }
     } catch (e) {
       if (mounted) {
         final messenger = ScaffoldMessenger.of(context);
-        messenger.removeCurrentSnackBar();
+        messenger.clearSnackBars();
         messenger.showSnackBar(
-          SnackBar(content: Text('删除失败：${e.toString().replaceFirst('Exception: ', '')}')),
+          SnackBar(key: const ValueKey('chat_friend_remove_fail'), content: Text('删除失败：${e.toString().replaceFirst('Exception: ', '')}')),
         );
       }
     }
@@ -247,8 +247,8 @@ class _FriendsTabState extends ConsumerState<_FriendsTab> {
       if (kitsRoom.isEmpty) {
         if (mounted) {
           final messenger = ScaffoldMessenger.of(context);
-          messenger.removeCurrentSnackBar();
-          messenger.showSnackBar(const SnackBar(content: Text('无法打开会话，请稍后重试')));
+          messenger.clearSnackBars();
+          messenger.showSnackBar(SnackBar(key: const ValueKey('chat_open_room_fail'), content: const Text('无法打开会话，请稍后重试')));
         }
         return;
       }
@@ -259,8 +259,8 @@ class _FriendsTabState extends ConsumerState<_FriendsTab> {
         onError: (String err) {
           if (mounted) {
             final messenger = ScaffoldMessenger.of(context);
-            messenger.removeCurrentSnackBar();
-            messenger.showSnackBar(SnackBar(content: Text(err)));
+            messenger.clearSnackBars();
+            messenger.showSnackBar(SnackBar(key: const ValueKey('chat_connect_err_2'), content: Text(err)));
           }
         },
       );
