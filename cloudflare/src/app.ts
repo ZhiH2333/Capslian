@@ -1,5 +1,6 @@
 /**
  * Hono 应用：聚合 /api 路由，与 Flutter 模块一一对应。
+ * /cgi/im 为 IM 协议（scope/alias → channel_id）REST 接口。
  */
 
 import { Hono } from "hono";
@@ -11,6 +12,7 @@ import {
   uuid,
   REFRESH_TOKEN_EXPIRY_SECONDS,
 } from "./auth/refresh";
+import im from "./im/routes";
 
 export interface Env {
   molian_db: D1Database;
@@ -19,14 +21,31 @@ export interface Env {
   JWT_SECRET: string;
 }
 
-const CORS_HEADERS: Record<string, string> = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization",
-};
+const CORS_ALLOW_METHODS = "GET, POST, PUT, PATCH, DELETE, OPTIONS";
+const CORS_ALLOW_HEADERS = "Content-Type, Authorization";
 
-function corsHeaders(): HeadersInit {
-  return { ...CORS_HEADERS };
+/** 允许的 Origin 前缀（本地开发 + 生产）；其余用 *。 */
+function getAllowedOrigin(requestOrigin: string | null): string {
+  if (!requestOrigin) return "*";
+  try {
+    const o = new URL(requestOrigin);
+    if (o.hostname === "localhost" || o.hostname === "127.0.0.1") return requestOrigin;
+    if (o.hostname.endsWith(".molian.app") || o.hostname === "molian.app") return requestOrigin;
+    if (o.hostname.endsWith(".pages.dev")) return requestOrigin;
+  } catch {
+    return "*";
+  }
+  return "*";
+}
+
+function corsHeaders(origin?: string | null): HeadersInit {
+  const allowOrigin = origin !== undefined ? getAllowedOrigin(origin) : "*";
+  return {
+    "Access-Control-Allow-Origin": allowOrigin,
+    "Access-Control-Allow-Methods": CORS_ALLOW_METHODS,
+    "Access-Control-Allow-Headers": CORS_ALLOW_HEADERS,
+    "Access-Control-Max-Age": "86400",
+  };
 }
 
 async function getUserIdFromRequest(c: { req: Request; env: Env }): Promise<string | null> {
@@ -46,13 +65,17 @@ const app = new Hono<{ Bindings: Env }>();
 
 app.use("*", async (c, next) => {
   if (c.req.method === "OPTIONS") {
-    return new Response(null, { status: 204, headers: corsHeaders() });
+    const origin = c.req.header("Origin");
+    return new Response(null, { status: 204, headers: corsHeaders(origin) });
   }
   await next();
 });
 
 app.get("/", (c) => c.json({ ok: true }, 200, corsHeaders()));
 app.get("/health", (c) => c.json({ ok: true }, 200, corsHeaders()));
+
+// IM 协议：/cgi/im/channels/:scope/:alias/...（与说明文档对齐）
+app.route("/cgi/im", im);
 
 // ----- Auth -----
 app.post("/api/auth/register", async (c) => {
@@ -273,6 +296,7 @@ app.get("/api/users/me/friends", async (c) => {
   const userId = await getUserIdFromRequest(c);
   if (!userId) return c.json({ error: "未登录" }, 401, corsHeaders());
   try {
+    await ensureFriendRequestTables(c.env.molian_db);
     const { results } = await c.env.molian_db.prepare(
       `SELECT u.id, u.username, u.display_name, u.avatar_url
        FROM friend_requests fr
@@ -295,6 +319,7 @@ app.delete("/api/users/me/friends/:id", async (c) => {
   if (!userId) return c.json({ error: "未登录" }, 401, corsHeaders());
   const friendId = c.req.param("id");
   try {
+    await ensureFriendRequestTables(c.env.molian_db);
     const result = await c.env.molian_db.prepare(
       "UPDATE friend_requests SET status = 'removed' WHERE ((requester_id = ? AND target_id = ?) OR (requester_id = ? AND target_id = ?)) AND status = 'accepted'"
     )
@@ -534,6 +559,7 @@ app.get("/api/friend-requests", async (c) => {
   const userId = await getUserIdFromRequest(c);
   if (!userId) return c.json({ error: "未登录" }, 401, corsHeaders());
   try {
+    await ensureFriendRequestTables(c.env.molian_db);
     const { results } = await c.env.molian_db.prepare(
       "SELECT fr.id, fr.requester_id, fr.target_id, fr.status, fr.created_at, u.username, u.display_name, u.avatar_url FROM friend_requests fr JOIN users u ON fr.requester_id = u.id WHERE fr.target_id = ? AND fr.status = 'pending' ORDER BY fr.created_at DESC"
     )
@@ -552,6 +578,7 @@ app.post("/api/friend-requests", async (c) => {
   const userId = await getUserIdFromRequest(c);
   if (!userId) return c.json({ error: "未登录" }, 401, corsHeaders());
   try {
+    await ensureFriendRequestTables(c.env.molian_db);
     const body = (await c.req.json()) as { target_id?: string };
     const targetId = String(body?.target_id ?? "").trim();
     if (!targetId || targetId === userId) return c.json({ error: "无效的 target_id" }, 400, corsHeaders());
@@ -564,6 +591,20 @@ app.post("/api/friend-requests", async (c) => {
       const status = (existing as { status: string }).status;
       if (status === "pending") return c.json({ error: "已发送过好友申请" }, 409, corsHeaders());
       if (status === "accepted") return c.json({ error: "已是好友" }, 409, corsHeaders());
+      if (status === "rejected" || status === "removed") {
+        const existingId = (existing as { id: string }).id;
+        await c.env.molian_db
+          .prepare(
+            "UPDATE friend_requests SET status = 'pending', created_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?"
+          )
+          .bind(existingId)
+          .run();
+        const row = await c.env.molian_db
+          .prepare("SELECT id, requester_id, target_id, status, created_at FROM friend_requests WHERE id = ?")
+          .bind(existingId)
+          .first();
+        return c.json({ friend_request: row }, 201, corsHeaders());
+      }
     }
     const id = uuid();
     await c.env.molian_db.prepare("INSERT INTO friend_requests (id, requester_id, target_id, status) VALUES (?, ?, ?, 'pending')").bind(id, userId, targetId).run();
@@ -583,6 +624,7 @@ app.post("/api/friend-requests/:id/accept", async (c) => {
   if (!userId) return c.json({ error: "未登录" }, 401, corsHeaders());
   const requestId = c.req.param("id");
   try {
+    await ensureFriendRequestTables(c.env.molian_db);
     const row = await c.env.molian_db.prepare(
       "SELECT id, requester_id, target_id, status FROM friend_requests WHERE id = ? AND target_id = ? AND status = 'pending'"
     )
@@ -605,6 +647,7 @@ app.post("/api/friend-requests/:id/reject", async (c) => {
   if (!userId) return c.json({ error: "未登录" }, 401, corsHeaders());
   const requestId = c.req.param("id");
   try {
+    await ensureFriendRequestTables(c.env.molian_db);
     const row = await c.env.molian_db.prepare(
       "SELECT id FROM friend_requests WHERE id = ? AND target_id = ? AND status = 'pending'"
     )
@@ -1012,6 +1055,40 @@ async function ensureChatTables(db: D1Database): Promise<void> {
   }
 }
 
+// 好友申请表初始化（首次调用时自动建表）。
+async function ensureFriendRequestTables(db: D1Database): Promise<void> {
+  const ddlStatements = [
+    `CREATE TABLE IF NOT EXISTS friend_requests (
+      id TEXT PRIMARY KEY,
+      requester_id TEXT NOT NULL,
+      target_id TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+      UNIQUE(requester_id, target_id)
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_friend_requests_target ON friend_requests(target_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_friend_requests_requester ON friend_requests(requester_id)`,
+  ];
+  for (const sql of ddlStatements) {
+    try {
+      await db.prepare(sql).run();
+    } catch (_) {
+      // 表/索引已存在时忽略错误，继续执行后续语句
+    }
+  }
+}
+
+/** 将 SQLite datetime('now') 格式转为 ISO8601，便于客户端正确解析时间（避免 00:00）。 */
+function toIsoIfNeeded(s: unknown): unknown {
+  if (s == null || typeof s !== "string") return s;
+  const t = String(s).trim();
+  if (t.includes("Z") || t.includes("+")) return t;
+  const space = t.indexOf(" ");
+  if (space <= 0) return t;
+  const withT = t.slice(0, space) + "T" + t.slice(space + 1);
+  return withT + (withT.includes(".") ? "" : ".000") + "Z";
+}
+
 async function buildMessageResponse(
   env: Env,
   row: Record<string, unknown>
@@ -1034,6 +1111,9 @@ async function buildMessageResponse(
       replyMessage = {
         ...rr,
         room_id: rr.room_id,
+        created_at: toIsoIfNeeded(rr.created_at),
+        updated_at: toIsoIfNeeded(rr.updated_at),
+        deleted_at: toIsoIfNeeded(rr.deleted_at),
         attachments: JSON.parse(String(rr.attachments || "[]")),
         reactions: JSON.parse(String(rr.reactions || "{}")),
         sender: rrSender,
@@ -1045,9 +1125,9 @@ async function buildMessageResponse(
     room_id: row.room_id,
     sender_id: row.sender_id,
     content: row.content,
-    created_at: row.created_at,
-    updated_at: row.updated_at,
-    deleted_at: row.deleted_at,
+    created_at: toIsoIfNeeded(row.created_at),
+    updated_at: toIsoIfNeeded(row.updated_at),
+    deleted_at: toIsoIfNeeded(row.deleted_at),
     nonce: row.nonce,
     attachments: JSON.parse(String(row.attachments || "[]")),
     reactions: JSON.parse(String(row.reactions || "{}")),
@@ -1285,8 +1365,9 @@ app.post("/messager/chat/:roomId/messages", async (c) => {
       meta?: unknown;
     };
     const content = String(body?.content ?? "").trim();
+    const nonce = String(body?.nonce ?? "").trim();
     const attachments = JSON.stringify(Array.isArray(body?.attachments) ? body.attachments : []);
-    const id = uuid();
+    const id = nonce.isNotEmpty ? nonce : uuid();
     await c.env.molian_db
       .prepare(
         `INSERT INTO chat_room_messages
@@ -1295,7 +1376,7 @@ app.post("/messager/chat/:roomId/messages", async (c) => {
       )
       .bind(
         id, roomId, userId, content,
-        body?.nonce ?? null, attachments,
+        nonce.isNotEmpty ? nonce : null, attachments,
         body?.reply_id ?? null, body?.forwarded_id ?? null,
         body?.meta ? JSON.stringify(body.meta) : null
       )

@@ -9,8 +9,29 @@ import type { Env } from "./app";
 
 export type { Env };
 
+const CORS_HEADERS: Record<string, string> = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization",
+  "Access-Control-Max-Age": "86400",
+};
+
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    if (request.method === "OPTIONS") {
+      const origin = request.headers.get("Origin");
+      const allowOrigin =
+        origin && (origin.startsWith("http://localhost") || origin.startsWith("http://127.0.0.1") || origin.includes("molian.app") || origin.includes("pages.dev"))
+          ? origin
+          : "*";
+      return new Response(null, {
+        status: 204,
+        headers: {
+          ...CORS_HEADERS,
+          "Access-Control-Allow-Origin": allowOrigin,
+        },
+      });
+    }
     const url = new URL(request.url);
     const pathname = url.pathname.replace(/\/$/, "") || "/";
     if (pathname === "/ws" || pathname === "/api/ws") {

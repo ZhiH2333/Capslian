@@ -9,6 +9,12 @@ main = "src/index.ts"
 compatibility_date = "2024-12-01"
 workers_dev = true
 
+# 自定义域名 api.molian.app：需在 Cloudflare 中把该域名加入同一账号并解析到此 Worker。
+# 若域名已在 Cloudflare，可取消下面注释，部署后路由会生效。
+# routes = [
+#   { pattern = "api.molian.app", zone_name = "molian.app" }
+# ]
+
 [vars]
 JWT_SECRET = "0123456789abcdef0123456789abcdef"
 
