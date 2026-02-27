@@ -4,12 +4,12 @@ class ApiConstants {
 
   static const String _baseUrlEnv = String.fromEnvironment(
     'API_BASE_URL',
-    defaultValue: 'https://molian-api.zhih2333.workers.dev',
+    defaultValue: 'https://api.molian.app',
   );
 
   static const String _wsBaseUrlEnv = String.fromEnvironment(
     'WS_BASE_URL',
-    defaultValue: 'wss://molian-api.zhih2333.workers.dev',
+    defaultValue: 'wss://api.molian.app',
   );
 
   /// REST API 基地址。默认远端 Worker；本地调试时用 --dart-define=API_BASE_URL=http://127.0.0.1:8787 连本地。
@@ -39,7 +39,8 @@ class ApiConstants {
   static String realmById(String id) => '$realms/$id';
   static String realmJoin(String id) => '$realms/$id/join';
   static String realmLeave(String id) => '$realms/$id/leave';
-  static String assetUrl(String key) => '$baseUrl/api/asset/${Uri.encodeComponent(key)}';
+  static String assetUrl(String key) =>
+      '$baseUrl/api/asset/${Uri.encodeComponent(key)}';
   static const String notificationsList = '/api/notifications';
   static const String notificationsRead = '/api/notifications/read';
   static const String notificationsSubscribe = '/api/notifications/subscribe';
@@ -53,8 +54,10 @@ class ApiConstants {
       '/messager/chat/$roomId/messages/$messageId';
 
   static String messagerChatMessageReaction(
-          String roomId, String messageId, String emoji) =>
-      '/messager/chat/$roomId/messages/$messageId/reactions/$emoji';
+    String roomId,
+    String messageId,
+    String emoji,
+  ) => '/messager/chat/$roomId/messages/$messageId/reactions/$emoji';
 
   static String messagerChatDirect(String peerId) =>
       '/messager/chat/direct/$peerId';

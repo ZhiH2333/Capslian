@@ -67,22 +67,12 @@ class _FriendRequestsScreenState extends ConsumerState<FriendRequestsScreen> {
           _processingIds.remove(requestId);
           _list.removeWhere((Map<String, dynamic> r) => r['id'] == requestId);
         });
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            key: ValueKey('accept_${DateTime.now().millisecondsSinceEpoch}'),
-            content: const Text('已接受好友申请'),
-          ),
-        );
+        _showSnackBar('已接受好友申请');
       }
     } catch (e) {
       if (mounted) {
         setState(() => _processingIds.remove(requestId));
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            key: ValueKey('accept_err_${DateTime.now().millisecondsSinceEpoch}'),
-            content: Text('操作失败：${e.toString().replaceFirst('Exception: ', '')}'),
-          ),
-        );
+        _showSnackBar('操作失败：${e.toString().replaceFirst('Exception: ', '')}');
       }
     }
   }
@@ -97,24 +87,28 @@ class _FriendRequestsScreenState extends ConsumerState<FriendRequestsScreen> {
           _processingIds.remove(requestId);
           _list.removeWhere((Map<String, dynamic> r) => r['id'] == requestId);
         });
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            key: ValueKey('reject_${DateTime.now().millisecondsSinceEpoch}'),
-            content: const Text('已拒绝'),
-          ),
-        );
+        _showSnackBar('已拒绝');
       }
     } catch (e) {
       if (mounted) {
         setState(() => _processingIds.remove(requestId));
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            key: ValueKey('reject_err_${DateTime.now().millisecondsSinceEpoch}'),
-            content: Text('操作失败：${e.toString().replaceFirst('Exception: ', '')}'),
-          ),
-        );
+        _showSnackBar('操作失败：${e.toString().replaceFirst('Exception: ', '')}');
       }
     }
+  }
+
+  void _showSnackBar(String message) {
+    if (!mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.clearSnackBars();
+    messenger.showSnackBar(
+      SnackBar(
+        content: KeyedSubtree(
+          key: UniqueKey(),
+          child: Text(message),
+        ),
+      ),
+    );
   }
 
   @override

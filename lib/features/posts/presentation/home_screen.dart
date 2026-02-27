@@ -159,6 +159,7 @@ class _FeedsTabContent extends ConsumerWidget {
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: LayoutConstants.kContentMaxWidthWide),
               child: ListView.builder(
+                physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
                 padding: EdgeInsets.only(bottom: bottomPadding),
                 itemCount: result.posts.length,
                 itemBuilder: (BuildContext context, int index) => PostCard(post: result.posts[index]),

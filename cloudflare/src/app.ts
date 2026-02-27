@@ -1084,7 +1084,10 @@ function toIsoIfNeeded(s: unknown): unknown {
   const t = String(s).trim();
   if (t.includes("Z") || t.includes("+")) return t;
   const space = t.indexOf(" ");
-  if (space <= 0) return t;
+  if (space <= 0) {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(t)) return t + "T12:00:00.000Z";
+    return t;
+  }
   const withT = t.slice(0, space) + "T" + t.slice(space + 1);
   return withT + (withT.includes(".") ? "" : ".000") + "Z";
 }
@@ -1164,7 +1167,7 @@ async function broadcastRoomMessage(
   }
 }
 
-// GET /messager/chat - 获取用户所在的聊天房间列表
+// GET /messager/chat - 获取用户所在的聊天房间列表（含 peer_id/members 便于客户端解析私信房间）
 app.get("/messager/chat", async (c) => {
   const userId = await getUserIdFromRequest(c);
   if (!userId) return c.json({ error: "未登录" }, 401, corsHeaders());
@@ -1172,15 +1175,33 @@ app.get("/messager/chat", async (c) => {
     await ensureChatTables(c.env.molian_db);
     const { results } = await c.env.molian_db
       .prepare(
-        `SELECT r.id, r.name, r.type, r.description, r.avatar_url, r.member_count, r.last_message_at, r.created_at
+        `SELECT r.id, r.name, r.type, r.description, r.avatar_url, r.member_count, r.last_message_at, r.created_at,
+                (SELECT m2.user_id FROM chat_room_members m2
+                 WHERE m2.room_id = r.id AND m2.user_id != ? LIMIT 1) as peer_id
          FROM chat_rooms r
-         INNER JOIN chat_room_members m ON m.room_id = r.id
-         WHERE m.user_id = ?
-         ORDER BY r.last_message_at DESC`
+         INNER JOIN chat_room_members m ON m.room_id = r.id AND m.user_id = ?
+         ORDER BY COALESCE(r.last_message_at, r.created_at, '1970-01-01') DESC`
       )
-      .bind(userId)
+      .bind(userId, userId)
       .all();
-    return c.json({ rooms: results }, 200, corsHeaders());
+    const rooms = (results as Record<string, unknown>[]).map((row) => {
+      const peerId = row.peer_id as string | null | undefined;
+      const members = peerId
+        ? [{ user_id: peerId }]
+        : [];
+      return {
+        id: row.id,
+        name: row.name,
+        type: row.type,
+        description: row.description,
+        avatar_url: row.avatar_url,
+        member_count: row.member_count,
+        last_message_at: toIsoIfNeeded(row.last_message_at),
+        created_at: toIsoIfNeeded(row.created_at),
+        members,
+      };
+    });
+    return c.json({ rooms }, 200, corsHeaders());
   } catch (e) {
     console.error("GET /messager/chat error:", e);
     return c.json({ error: "获取失败" }, 500, corsHeaders());

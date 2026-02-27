@@ -46,3 +46,18 @@ web/version.json
 
 # Test
 coverage/
+node_modules
+.playwright_browsers
+
+# Cursor / local
+.cursor/
+devtools_options.yaml
+
+# Wrangler / Cloudflare 本地缓存与状态
+.wrangler/cache/wrangler-account.json
+cloudflare/.wrangler/
+cloudflare/dist/
+cloudflare/export.sql
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal

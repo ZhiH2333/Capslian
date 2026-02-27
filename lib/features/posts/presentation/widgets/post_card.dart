@@ -258,6 +258,7 @@ class _PostActionsSheet extends StatelessWidget {
       await ref.read(postsRepositoryProvider).deletePost(post.id);
       if (context.mounted) {
         ref.invalidate(postsListProvider(const PostsListKey()));
+        ref.invalidate(feedsListProvider(const PostsListKey()));
       }
     } catch (_) {
       if (context.mounted) {

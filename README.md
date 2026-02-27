@@ -27,5 +27,5 @@ samples, guidance on mobile development, and a full API reference.
 
 应用已对认证接口（注册、登录、/auth/me）在连接超时或连接错误时**自动重试一次**，并适当提高了超时时间。若仍失败，请检查：
 
-- 当前网络能否访问 API 基地址（默认 `https://molian-api.zhih2333.workers.dev`）；
+- 当前网络能否访问 API 基地址（默认 `https://api.molian.app`）；
 - 是否有浏览器扩展拦截或修改请求（参见上文）。

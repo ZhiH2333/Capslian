@@ -39,13 +39,57 @@ class MolianChatMessageDelegate implements ChatMessageDelegate {
     }
   }
 
-  void appendOrUpdateMessage(String roomId, Message msg) {
+  static String _messageContent(Message m) {
+    if (m is TextMessage) return m.text;
+    if (m is ImageMessage) return m.caption ?? '';
+    return '';
+  }
+
+  void appendOrUpdateMessage(
+    String roomId,
+    Message msg, {
+    String? clientNonce,
+    String? senderId,
+  }) {
     _cache[roomId] ??= [];
     final list = _cache[roomId]!;
-    final idx = list.indexWhere((m) => m.id == msg.id);
+    int idx = list.indexWhere((m) => m.id == msg.id);
+    final isFromMe = senderId != null && senderId == MolianChatBackend.uid;
+    final canDedupByNonce =
+        isFromMe && clientNonce != null && clientNonce.isNotEmpty;
+    if (idx < 0 && canDedupByNonce) {
+      idx = list.indexWhere((m) => m.id == clientNonce);
+    }
+    if (idx < 0 && isFromMe) {
+      final content = _messageContent(msg);
+      final msgTs = msg.createdAt.timestamp;
+      const windowMs = 30000;
+      idx = list.indexWhere((m) {
+        if (!m.isSentByMe) return false;
+        if (_messageContent(m) != content) return false;
+        final otherTs = m.createdAt.timestamp;
+        final diffMs = msgTs.difference(otherTs).inMilliseconds.abs();
+        return diffMs < windowMs;
+      });
+    }
     if (idx >= 0) {
       list[idx] = msg;
     } else {
+      if (canDedupByNonce) {
+        list.removeWhere((m) => m.id == clientNonce);
+      }
+      if (isFromMe) {
+        final content = _messageContent(msg);
+        final msgTs = msg.createdAt.timestamp;
+        const windowMs = 30000;
+        final dupIdx = list.indexWhere((m) {
+          if (!m.isSentByMe) return false;
+          if (_messageContent(m) != content) return false;
+          final diffMs = msgTs.difference(m.createdAt.timestamp).inMilliseconds.abs();
+          return diffMs < windowMs;
+        });
+        if (dupIdx >= 0) list.removeAt(dupIdx);
+      }
       list.add(msg);
       list.sort((a, b) => a.createdAt.timestamp.compareTo(b.createdAt.timestamp));
     }
@@ -66,10 +110,63 @@ class MolianChatMessageDelegate implements ChatMessageDelegate {
   Future<void> create(String roomId, String msgId, Map<String, dynamic> value) async {
     final dio = _dio;
     if (dio == null) return;
+    final uid = MolianChatBackend.uid;
+    final type = (value['type'] as Object?)?.toString().toLowerCase() ?? 'text';
     final content = value['content'] as String? ?? value['text'] as String? ?? '';
+    final attachments = <Map<String, dynamic>>[];
+    List<String> imageUrls = <String>[];
+    if (type == 'image') {
+      final rawUrls = value['urls'] as List?;
+      imageUrls = rawUrls
+              ?.map((e) => (e?.toString() ?? '').trim())
+              .where((u) => u.isNotEmpty)
+              .map((u) => toAbsoluteImageUrl(u))
+              .toList() ??
+          <String>[];
+      for (int i = 0; i < imageUrls.length; i++) {
+        attachments.add(<String, dynamic>{
+          'id': '',
+          'name': 'image_${i + 1}',
+          'url': imageUrls[i],
+          'mime_type': 'image/jpeg',
+        });
+      }
+    }
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    final optimisticMap = <String, dynamic>{
+      'id': msgId,
+      'roomId': roomId,
+      'senderId': uid,
+      'type': type,
+      'content': content,
+      if (type == 'image' && imageUrls.isNotEmpty) 'urls': imageUrls,
+      'statuses': <String, String>{uid: 'sending'},
+      'createdAt': nowMs,
+      'updatedAt': nowMs,
+      'created_at': null,
+      'updated_at': null,
+      'replyId': value['replyId'] as String? ?? '',
+      'reactions': <String, String>{},
+      'isDeleted': false,
+      'isEdited': false,
+      'isForwarded': false,
+      'deletes': <String, bool>{},
+      'pins': <String, bool>{},
+      'removes': <String, bool>{},
+    };
+    final optimisticMsg = Message.parse(optimisticMap);
+    if (!optimisticMsg.isEmpty) {
+      _cache[roomId] ??= [];
+      _messageStreams[roomId] ??= StreamController<List<Message>>.broadcast();
+      final list = _cache[roomId]!;
+      list.add(optimisticMsg);
+      list.sort((a, b) => a.createdAt.timestamp.compareTo(b.createdAt.timestamp));
+      _messageStreams[roomId]?.add(List.from(list));
+    }
     final body = <String, dynamic>{
       'content': content,
       'nonce': msgId,
+      if (attachments.isNotEmpty) 'attachments': attachments,
       if (value['replyId'] != null && (value['replyId'] as String).isNotEmpty)
         'reply_id': value['replyId'],
     };
@@ -83,6 +180,11 @@ class MolianChatMessageDelegate implements ChatMessageDelegate {
   Future<void> update(String roomId, String id, Map<String, dynamic> value) async {
     final dio = _dio;
     if (dio == null) return;
+    final isDeleted = value['isDeleted'] == true;
+    if (isDeleted) {
+      await delete(roomId, id);
+      return;
+    }
     final content = value['content'] as String? ?? value['text'] as String? ?? '';
     await dio.patch<Map<String, dynamic>>(
       ApiConstants.messagerChatMessage(roomId, id),
@@ -138,8 +240,11 @@ class MolianChatMessageDelegate implements ChatMessageDelegate {
         ApiConstants.upload,
         data: formData,
       );
-      final url = res.data?['url'] as String? ?? res.data?['path'] as String? ?? '';
-      return url.isNotEmpty ? '${ApiConstants.baseUrl}$url' : '';
+      final url = (res.data?['url'] as String? ?? res.data?['path'] as String? ?? '').trim();
+      if (url.isEmpty) return '';
+      if (url.startsWith('http://') || url.startsWith('https://')) return url;
+      final base = ApiConstants.baseUrl;
+      return base.endsWith('/') ? '$base${url.startsWith('/') ? url.substring(1) : url}' : '$base$url';
     } catch (_) {
       return '';
     }

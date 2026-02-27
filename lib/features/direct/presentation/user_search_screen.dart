@@ -1,6 +1,11 @@
+import 'dart:convert';
+
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../debug_log.dart';
 import '../../auth/providers/auth_providers.dart';
 import '../../social/providers/social_providers.dart';
 
@@ -30,6 +35,17 @@ class _UserSearchScreenState extends ConsumerState<UserSearchScreen> {
     super.dispose();
   }
 
+  /// 从用户或好友项中解析用户 id（兼容 id / user_id / user.id）。
+  static String? _userIdFrom(Map<String, dynamic> map) {
+    final id = map['id']?.toString();
+    if (id != null && id.isNotEmpty) return id;
+    final userId = map['user_id']?.toString();
+    if (userId != null && userId.isNotEmpty) return userId;
+    final user = map['user'];
+    if (user is Map) return _userIdFrom(Map<String, dynamic>.from(user));
+    return null;
+  }
+
   Future<void> _loadFriendIds() async {
     try {
       final repo = ref.read(socialRepositoryProvider);
@@ -38,8 +54,8 @@ class _UserSearchScreenState extends ConsumerState<UserSearchScreen> {
         setState(() {
           _friendIds.clear();
           for (final f in friends) {
-            final id = f['id']?.toString();
-            if (id != null && id.isNotEmpty) _friendIds.add(id);
+            final id = _userIdFrom(f);
+            if (id != null) _friendIds.add(id);
           }
         });
       }
@@ -79,23 +95,49 @@ class _UserSearchScreenState extends ConsumerState<UserSearchScreen> {
   }
 
   Future<void> _sendFriendRequest(String targetId) async {
+    // #region agent log
+    debugLog(
+      'user_search_screen.dart:_sendFriendRequest',
+      'entry',
+      <String, dynamic>{'targetId': targetId, 'targetIdLength': targetId.length},
+      'H1_H2',
+    );
+    // #endregion
     setState(() => _sendingIds.add(targetId));
     try {
       final repo = ref.read(socialRepositoryProvider);
       await repo.sendFriendRequest(targetId);
+      // #region agent log
+      debugLog(
+        'user_search_screen.dart:_sendFriendRequest',
+        'success',
+        <String, dynamic>{'targetId': targetId},
+        'H4_H5',
+      );
+      // #endregion
       if (mounted) {
         setState(() {
           _sendingIds.remove(targetId);
           _sentIds.add(targetId);
         });
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            key: ValueKey('friend_sent_${DateTime.now().millisecondsSinceEpoch}'),
-            content: const Text('好友申请已发送'),
-          ),
-        );
       }
     } catch (e) {
+      // #region agent log
+      DioException? dioEx;
+      if (e is DioException) dioEx = e;
+      debugLog(
+        'user_search_screen.dart:_sendFriendRequest',
+        'catch',
+        <String, dynamic>{
+          'errorType': e.runtimeType.toString(),
+          'isDioException': dioEx != null,
+          if (dioEx != null) 'dioType': dioEx.type.toString(),
+          if (dioEx != null) 'statusCode': dioEx.response?.statusCode,
+          'message': e.toString().length > 200 ? '${e.toString().substring(0, 200)}…' : e.toString(),
+        },
+        'H3_H4',
+      );
+      // #endregion
       if (mounted) {
         setState(() => _sendingIds.remove(targetId));
         final msg = e.toString().replaceFirst('Exception: ', '');
@@ -103,14 +145,68 @@ class _UserSearchScreenState extends ConsumerState<UserSearchScreen> {
         if (is409) {
           setState(() => _sentIds.add(targetId));
         } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              key: ValueKey('friend_err_${DateTime.now().millisecondsSinceEpoch}'),
-              content: Text('发送失败：$msg'),
-            ),
-          );
+          _showErrorDialog(e, targetId);
         }
       }
+    }
+  }
+
+  void _showErrorDialog(Object error, String targetId) {
+    if (!mounted) return;
+    final details = _buildErrorDetails(error, targetId);
+    showDialog<void>(
+      context: context,
+      builder: (BuildContext context) => AlertDialog(
+        title: const Text('好友申请发送失败'),
+        content: SizedBox(
+          width: 520,
+          child: SingleChildScrollView(
+            child: SelectableText(details),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () async {
+              await Clipboard.setData(ClipboardData(text: details));
+            },
+            child: const Text('复制'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('关闭'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _buildErrorDetails(Object e, String targetId) {
+    final buffer = StringBuffer()
+      ..writeln('target_id: $targetId')
+      ..writeln('time: ${DateTime.now().toIso8601String()}');
+    if (e is DioException) {
+      final req = e.requestOptions;
+      buffer
+        ..writeln('request: ${req.method} ${req.baseUrl}${req.path}')
+        ..writeln('status: ${e.response?.statusCode ?? 'unknown'}')
+        ..writeln('dio_type: ${e.type}');
+      if (req.queryParameters.isNotEmpty) {
+        buffer.writeln('query: ${jsonEncode(req.queryParameters)}');
+      }
+      final data = e.response?.data;
+      if (data != null) {
+        buffer.writeln('response: ${_stringify(data)}');
+      }
+    }
+    buffer.writeln('error: ${e.toString()}');
+    return buffer.toString().trim();
+  }
+
+  static String _stringify(Object data) {
+    try {
+      return jsonEncode(data);
+    } catch (_) {
+      return data.toString();
     }
   }
 
@@ -196,10 +292,13 @@ class _UserSearchScreenState extends ConsumerState<UserSearchScreen> {
                               itemCount: _results.length,
                               itemBuilder: (_, int i) {
                                 final u = _results[i];
-                                final id = u['id']?.toString() ?? '';
-                                final username = u['username']?.toString() ?? '';
-                                final displayName = u['display_name']?.toString() ?? '';
-                                final avatarUrl = u['avatar_url']?.toString();
+                                final id = _userIdFrom(u) ?? '';
+                                final rawUser = u['user'] is Map
+                                    ? Map<String, dynamic>.from(u['user'] as Map)
+                                    : u;
+                                final username = (rawUser['username'] ?? u['username'])?.toString() ?? '';
+                                final displayName = (rawUser['display_name'] ?? u['display_name'])?.toString() ?? '';
+                                final avatarUrl = (rawUser['avatar_url'] ?? u['avatar_url'])?.toString();
                                 final name = displayName.isNotEmpty ? displayName : username;
                                 final isMe = id == me.id;
                                 final isFriend = _friendIds.contains(id);

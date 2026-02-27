@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 
 import '../../../core/constants/api_constants.dart';
+import '../../../debug_log.dart';
 
 /// 点赞、评论、关注、私信接口。
 class SocialRepository {
@@ -84,16 +85,63 @@ class SocialRepository {
     );
     final response = await _dio.get<Map<String, dynamic>>(uri.toString());
     final data = response.data;
-    if (data == null || data['users'] is! List) return [];
-    return List<Map<String, dynamic>>.from(data['users'] as List);
+    if (data == null) return [];
+    final raw = data['users'] as List? ?? data['data'] as List? ?? [];
+    return raw.map((e) => Map<String, dynamic>.from(e as Map)).toList();
   }
 
-  /// 发送好友申请。
+  /// 发送好友申请。连接类错误时最多重试 2 次（共 3 次请求），应对冷启动或瞬时网络问题。
   Future<void> sendFriendRequest(String targetUserId) async {
-    await _dio.post<Map<String, dynamic>>(
-      ApiConstants.friendRequests,
-      data: <String, dynamic>{'target_id': targetUserId},
+    // #region agent log
+    debugLog(
+      'social_repository.dart:sendFriendRequest',
+      'request',
+      <String, dynamic>{
+        'path': ApiConstants.friendRequests,
+        'targetUserId': targetUserId,
+        'targetUserIdLength': targetUserId.length,
+      },
+      'H2',
     );
+    // #endregion
+    Future<void> doPost() => _dio.post<Map<String, dynamic>>(
+          ApiConstants.friendRequests,
+          data: <String, dynamic>{'target_id': targetUserId},
+        );
+    const retryableTypes = [
+      DioExceptionType.connectionError,
+      DioExceptionType.connectionTimeout,
+      DioExceptionType.receiveTimeout,
+      DioExceptionType.sendTimeout,
+    ];
+    int attempt = 0;
+    while (true) {
+      try {
+        attempt++;
+        await doPost();
+        return;
+      } on DioException catch (e) {
+        final isRetryable = retryableTypes.contains(e.type);
+        // #region agent log
+        debugLog(
+          'social_repository.dart:sendFriendRequest',
+          'catch',
+          <String, dynamic>{
+            'attempt': attempt,
+            'dioType': e.type.toString(),
+            'statusCode': e.response?.statusCode,
+            'isRetryable': isRetryable,
+          },
+          'H3_H4',
+        );
+        // #endregion
+        if (isRetryable && attempt < 3) {
+          await Future<void>.delayed(const Duration(milliseconds: 1500));
+        } else {
+          rethrow;
+        }
+      }
+    }
   }
 
   /// 获取收到的好友申请列表（仅 pending）。
@@ -122,8 +170,9 @@ class SocialRepository {
   Future<List<Map<String, dynamic>>> getFriends() async {
     final response = await _dio.get<Map<String, dynamic>>(ApiConstants.usersMeFriends);
     final data = response.data;
-    if (data == null || data['friends'] is! List) return [];
-    return List<Map<String, dynamic>>.from(data['friends'] as List);
+    if (data == null) return [];
+    final raw = data['friends'] as List? ?? data['data'] as List? ?? [];
+    return raw.map((e) => Map<String, dynamic>.from(e as Map)).toList();
   }
 
   /// 获取当前用户关注的用户列表。

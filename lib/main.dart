@@ -56,12 +56,15 @@ class MolianApp extends ConsumerWidget {
     final themeMode = ref.watch(themeModeProvider);
     final themeSettings = ref.watch(themeSettingsProvider);
     return ChatKitsInitializer(
-      child: MaterialApp.router(
-      title: 'Molian V1',
-      theme: AppTheme.light(themeSettings),
-      darkTheme: AppTheme.dark(themeSettings),
-      themeMode: themeMode,
-      routerConfig: createAppRouter(),
+      child: HeroControllerScope.none(
+        child: MaterialApp.router(
+          title: 'Molian V1',
+          theme: AppTheme.light(themeSettings),
+          darkTheme: AppTheme.dark(themeSettings),
+          themeMode: themeMode,
+          routerConfig: createAppRouter(),
+          debugShowCheckedModeBanner: false,
+        ),
       ),
     );
   }

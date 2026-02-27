@@ -7,6 +7,26 @@ import '../../../shared/widgets/app_scaffold.dart';
 import '../../../shared/widgets/auto_leading_button.dart';
 import '../providers/auth_providers.dart';
 
+/// 将登录/网络异常转为用户可读的简短提示。
+String _friendlyAuthError(Object? error) {
+  if (error == null) return '登录失败';
+  final msg = error.toString().replaceFirst('Exception: ', '');
+  if (msg.contains('Connection reset by peer') ||
+      msg.contains('connection reset') ||
+      msg.contains('Connection refused') ||
+      msg.contains('connection errored')) {
+    return '无法连接服务器，请检查网络或稍后重试';
+  }
+  if (msg.contains('SocketException') || msg.contains('Failed host lookup')) {
+    return '网络不可用，请检查网络后重试';
+  }
+  if (msg.contains('Connection timed out') || msg.contains('Timeout')) {
+    return '连接超时，请稍后重试';
+  }
+  if (msg.length > 100) return '${msg.substring(0, 100)}…';
+  return msg;
+}
+
 /// 登录页：用户名、密码、提交后更新 authState 并跳转首页。
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
@@ -96,7 +116,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             if (authState.hasError) ...[
               const SizedBox(height: 12),
               Text(
-                authState.error.toString().replaceFirst('Exception: ', ''),
+                _friendlyAuthError(authState.error),
                 style: TextStyle(color: Theme.of(context).colorScheme.error),
               ),
             ],

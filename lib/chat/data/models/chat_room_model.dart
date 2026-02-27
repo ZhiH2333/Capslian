@@ -65,6 +65,19 @@ class ChatRoom {
   factory ChatRoom.fromJson(Map<String, dynamic> json) {
     final typeStr = (json['type'] as String?) ?? 'direct';
     final membersRaw = json['members'] as List?;
+    List<ChatRoomMember> membersList = membersRaw
+            ?.map((dynamic e) =>
+                ChatRoomMember.fromJson(e as Map<String, dynamic>))
+            .toList() ??
+        [];
+    if (membersList.isEmpty) {
+      final peerId = (json['peer_id'] as Object?)?.toString();
+      if (peerId != null && peerId.isNotEmpty) {
+        membersList = [
+          ChatRoomMember.fromJson(<String, dynamic>{'user_id': peerId}),
+        ];
+      }
+    }
     return ChatRoom(
       id: (json['id'] as Object?)?.toString() ?? '',
       name: (json['name'] as Object?)?.toString() ?? '',
@@ -74,11 +87,7 @@ class ChatRoom {
       memberCount: (json['member_count'] as int?) ?? 0,
       lastMessageAt: json['last_message_at'] as String?,
       createdAt: json['created_at'] as String?,
-      members: membersRaw
-              ?.map((dynamic e) =>
-                  ChatRoomMember.fromJson(e as Map<String, dynamic>))
-              .toList() ??
-          [],
+      members: membersList,
     );
   }
 

@@ -41,7 +41,7 @@ class _DirectToChatRedirectScreenState
     try {
       final room = await ref.read(chatRoomListProvider.notifier).fetchOrCreateDirectRoom(widget.peerId);
       if (!mounted) return;
-      final kitsRoom = Room.parse(chatRoomToKitsMap(room));
+      final kitsRoom = Room.parse(chatRoomToKitsMap(room, directPeerId: widget.peerId));
       if (kitsRoom.isEmpty) {
         if (mounted) context.go(AppRoutes.chatRooms);
         return;

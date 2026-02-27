@@ -127,9 +127,9 @@ class _ConversationsTab extends StatelessWidget {
                   context,
                   room,
                   onError: (String err) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text(err)),
-                    );
+                    final messenger = ScaffoldMessenger.of(context);
+                    messenger.removeCurrentSnackBar();
+                    messenger.showSnackBar(SnackBar(content: Text(err)));
                   },
                 );
               },
@@ -183,20 +183,73 @@ class _FriendsTabState extends ConsumerState<_FriendsTab> {
     }
   }
 
+  Future<void> _confirmRemoveFriend(String friendId, String friendName) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext ctx) => AlertDialog(
+        title: const Text('删除好友'),
+        content: Text('确定删除好友「$friendName」吗？删除后需重新发送好友申请才能恢复。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(ctx).colorScheme.error,
+            ),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    try {
+      final repo = ref.read(socialRepositoryProvider);
+      await repo.removeFriend(friendId);
+      if (mounted) {
+        final messenger = ScaffoldMessenger.of(context);
+        messenger.removeCurrentSnackBar();
+        messenger.showSnackBar(
+          SnackBar(content: Text('已删除好友（${friendName.trim().isNotEmpty ? friendName : friendId}）')),
+        );
+        _loadFriends();
+      }
+    } catch (e) {
+      if (mounted) {
+        final messenger = ScaffoldMessenger.of(context);
+        messenger.removeCurrentSnackBar();
+        messenger.showSnackBar(
+          SnackBar(content: Text('删除失败：${e.toString().replaceFirst('Exception: ', '')}')),
+        );
+      }
+    }
+  }
+
   Future<void> _openChatWithFriend(String friendId, String friendName) async {
     if (friendId.isEmpty) return;
     try {
       final room = await ref.read(chatRoomListProvider.notifier).fetchOrCreateDirectRoom(friendId);
       if (!mounted) return;
-      final kitsRoom = Room.parse(chatRoomToKitsMap(room));
-      if (kitsRoom.isEmpty) return;
+      final kitsRoom = Room.parse(chatRoomToKitsMap(room, directPeerId: friendId));
+      if (kitsRoom.isEmpty) {
+        if (mounted) {
+          final messenger = ScaffoldMessenger.of(context);
+          messenger.removeCurrentSnackBar();
+          messenger.showSnackBar(const SnackBar(content: Text('无法打开会话，请稍后重试')));
+        }
+        return;
+      }
       RoomManager.i.put(kitsRoom);
       await RoomManager.i.connect<void>(
         context,
         kitsRoom,
         onError: (String err) {
           if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err)));
+            final messenger = ScaffoldMessenger.of(context);
+            messenger.removeCurrentSnackBar();
+            messenger.showSnackBar(SnackBar(content: Text(err)));
           }
         },
       );
@@ -291,7 +344,24 @@ class _FriendsTabState extends ConsumerState<_FriendsTab> {
             ),
             title: Text(title),
             subtitle: username.isNotEmpty ? Text('@$username') : null,
-            trailing: const Icon(Icons.chat_bubble_outline),
+            trailing: PopupMenuButton<String>(
+              icon: const Icon(Icons.more_vert),
+              onSelected: (String value) {
+                if (value == 'delete') _confirmRemoveFriend(id, title);
+              },
+              itemBuilder: (BuildContext context) => [
+                const PopupMenuItem<String>(
+                  value: 'delete',
+                  child: Row(
+                    children: [
+                      Icon(Icons.person_remove, size: 20),
+                      SizedBox(width: 12),
+                      Text('删除好友'),
+                    ],
+                  ),
+                ),
+              ],
+            ),
             onTap: () => _openChatWithFriend(id, title),
           );
         },

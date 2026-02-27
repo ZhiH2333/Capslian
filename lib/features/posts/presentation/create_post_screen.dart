@@ -211,6 +211,7 @@ class _CreatePostScreenState extends ConsumerState<CreatePostScreen> {
         imageUrls: _imageUrls.isEmpty ? null : _imageUrls,
       );
       ref.invalidate(postsListProvider(const PostsListKey()));
+      ref.invalidate(feedsListProvider(const PostsListKey()));
       if (!mounted) return;
       context.go(AppRoutes.home);
     } catch (e) {
