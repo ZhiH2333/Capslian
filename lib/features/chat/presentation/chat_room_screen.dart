@@ -36,8 +36,11 @@ class _ChatRoomScreenState extends ConsumerState<ChatRoomScreen> {
   @override
   void initState() {
     super.initState();
-    ref.read(roomMessagesProvider(widget.roomId).notifier).loadInitial(widget.roomId);
     _scrollController.addListener(_onScroll);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      ref.read(roomMessagesProvider(widget.roomId).notifier).loadInitial(widget.roomId);
+    });
   }
 
   @override
