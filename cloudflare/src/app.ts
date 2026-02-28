@@ -1123,6 +1123,7 @@ async function buildMessageResponse(
       };
     }
   }
+  const nonce = row.nonce != null ? String(row.nonce) : null;
   return {
     id: row.id,
     room_id: row.room_id,
@@ -1131,7 +1132,8 @@ async function buildMessageResponse(
     created_at: toIsoIfNeeded(row.created_at),
     updated_at: toIsoIfNeeded(row.updated_at),
     deleted_at: toIsoIfNeeded(row.deleted_at),
-    nonce: row.nonce,
+    nonce,
+    local_id: nonce,
     attachments: JSON.parse(String(row.attachments || "[]")),
     reactions: JSON.parse(String(row.reactions || "{}")),
     meta: row.meta ? JSON.parse(String(row.meta)) : null,

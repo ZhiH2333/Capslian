@@ -115,7 +115,10 @@ class _ChatRoomScreenState extends ConsumerState<ChatRoomScreen> {
       authorId: currentUserId,
       text: trimmed,
       createdAt: DateTime.now(),
-      metadata: <String, dynamic>{'local_id': localId},
+      metadata: <String, dynamic>{
+        'local_id': localId,
+        'pending': true,
+      },
     );
     _chatController.insertMessage(optimistic);
     ref.read(chatRepositoryProvider).sendText(
@@ -129,19 +132,36 @@ class _ChatRoomScreenState extends ConsumerState<ChatRoomScreen> {
         }).catchError((Object _) {});
   }
 
-  /// 应用 WebSocket 或 API 返回的消息：按 local_id 匹配则 update，否则 insert。
+  /// 应用 WebSocket 或 API 返回的消息：先按 local_id/nonce 匹配乐观消息，否则按 sender_id + pending 兜底，再否则 insert。
   void _applyWebSocketMessage(ChatMessageDto dto) {
-    final localId = dto.localId;
+    final incomingLocalId = dto.localId;
+    final incomingSenderId = dto.senderId;
     final newMsg = dtoToMessage(dto, widget.roomId);
     final list = _chatController.messages;
-    if (localId != null && localId.isNotEmpty) {
+    Message? matchedOptimistic;
+    if (incomingLocalId != null && incomingLocalId.isNotEmpty) {
       for (final msg in list) {
         final meta = msg.metadata;
-        if (meta != null && meta['local_id'] == localId) {
-          _chatController.updateMessage(msg, newMsg);
-          return;
+        if (meta != null && meta['local_id'] == incomingLocalId) {
+          matchedOptimistic = msg;
+          break;
         }
       }
+    }
+    if (matchedOptimistic == null) {
+      for (final msg in list) {
+        final meta = msg.metadata;
+        if (msg.authorId == incomingSenderId &&
+            meta != null &&
+            meta['pending'] == true) {
+          matchedOptimistic = msg;
+          break;
+        }
+      }
+    }
+    if (matchedOptimistic != null) {
+      _chatController.updateMessage(matchedOptimistic, newMsg);
+      return;
     }
     if (list.any((Message m) => m.id == dto.id)) return;
     _chatController.insertMessage(newMsg);
