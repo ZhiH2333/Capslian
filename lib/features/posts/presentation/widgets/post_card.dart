@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../../shared/widgets/image_lightbox.dart';
+import '../../../../shared/widgets/post_image_gallery.dart';
 import '../../../auth/data/models/user_model.dart';
 import '../../../auth/providers/auth_providers.dart';
 import '../../../social/providers/social_providers.dart';
@@ -421,8 +422,10 @@ class _PostImages extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (imageUrls.length == 1) return _buildSingleImage(context);
-    if (imageUrls.length == 2) return _buildTwoImages(context);
-    return _buildGrid(context);
+    return PostImageGallery(
+      imageUrls: imageUrls,
+      onImageTap: (int index) => _openLightbox(context, index),
+    );
   }
 
   Widget _buildSingleImage(BuildContext context) {
@@ -442,68 +445,6 @@ class _PostImages extends StatelessWidget {
     );
   }
 
-  Widget _buildTwoImages(BuildContext context) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(16),
-      child: AspectRatio(
-        aspectRatio: 16 / 9,
-        child: Row(
-          children: <Widget>[
-            Expanded(
-              child: GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: () => _openLightbox(context, 0),
-                child: Padding(
-                  padding: const EdgeInsets.only(right: 2),
-                  child: Hero(
-                    tag: _heroTag(0),
-                    child: _NetworkImage(url: imageUrls[0]),
-                  ),
-                ),
-              ),
-            ),
-            Expanded(
-              child: GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: () => _openLightbox(context, 1),
-                child: Hero(
-                  tag: _heroTag(1),
-                  child: _NetworkImage(url: imageUrls[1]),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildGrid(BuildContext context) {
-    final int count = imageUrls.length.clamp(0, 4);
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(16),
-      child: AspectRatio(
-        aspectRatio: 16 / 9,
-        child: GridView.builder(
-          physics: const NeverScrollableScrollPhysics(),
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 2,
-            crossAxisSpacing: 2,
-            mainAxisSpacing: 2,
-          ),
-          itemCount: count,
-          itemBuilder: (_, int i) => GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: () => _openLightbox(context, i),
-            child: Hero(
-              tag: _heroTag(i),
-              child: _NetworkImage(url: imageUrls[i]),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
 }
 
 /// 带缓存的网络图片，加载失败时显示占位图。
