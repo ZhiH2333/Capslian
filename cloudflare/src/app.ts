@@ -448,6 +448,48 @@ app.get("/api/posts/:id", async (c) => {
   );
 });
 
+app.patch("/api/posts/:id", async (c) => {
+  const userId = await getUserIdFromRequest(c);
+  if (!userId) return c.json({ error: "未登录" }, 401, corsHeaders());
+  const id = c.req.param("id");
+  const row = (await c.env.molian_db.prepare("SELECT user_id FROM posts WHERE id = ?").bind(id).first()) as { user_id: string } | null;
+  if (!row) return c.json({ error: "帖子不存在" }, 404, corsHeaders());
+  if (row.user_id !== userId) return c.json({ error: "只能编辑自己的帖子" }, 403, corsHeaders());
+  const body = (await c.req.json()) as { content?: string; image_urls?: string[] };
+  const content = body?.content !== undefined ? String(body.content).trim() : null;
+  const imageUrls = Array.isArray(body?.image_urls) ? (body.image_urls as string[]) : null;
+  if (content === null && imageUrls === null) return c.json({ error: "无有效更新字段" }, 400, corsHeaders());
+  if (content !== null && !content) return c.json({ error: "内容不能为空" }, 400, corsHeaders());
+  const updates: string[] = ["updated_at = datetime('now')"];
+  const values: unknown[] = [];
+  if (content !== null) {
+    updates.push("content = ?");
+    values.push(content);
+  }
+  if (imageUrls !== null) {
+    updates.push("image_urls = ?");
+    values.push(JSON.stringify(imageUrls));
+  }
+  values.push(id);
+  await c.env.molian_db.prepare(`UPDATE posts SET ${updates.join(", ")} WHERE id = ?`).bind(...values).run();
+  const updatedRow = (await c.env.molian_db.prepare(
+    "SELECT p.id, p.user_id, p.content, p.image_urls, p.created_at, p.updated_at, u.username, u.display_name, u.avatar_url FROM posts p JOIN users u ON p.user_id = u.id WHERE p.id = ?"
+  )
+    .bind(id)
+    .first()) as Record<string, unknown> | null;
+  if (!updatedRow) return c.json({ error: "更新失败" }, 500, corsHeaders());
+  const post = {
+    id: updatedRow.id,
+    user_id: updatedRow.user_id,
+    content: updatedRow.content,
+    image_urls: updatedRow.image_urls,
+    created_at: updatedRow.created_at,
+    updated_at: updatedRow.updated_at,
+    user: { username: updatedRow.username, display_name: updatedRow.display_name, avatar_url: updatedRow.avatar_url },
+  };
+  return c.json({ post }, 200, corsHeaders());
+});
+
 app.delete("/api/posts/:id", async (c) => {
   const userId = await getUserIdFromRequest(c);
   if (!userId) return c.json({ error: "未登录" }, 401, corsHeaders());
@@ -493,7 +535,7 @@ app.get("/api/posts/:id/comments", async (c) => {
   const postId = c.req.param("id");
   const limit = Math.min(Number(c.req.query("limit")) || 20, 100);
   const { results } = await c.env.molian_db.prepare(
-    "SELECT c.id, c.post_id, c.user_id, c.content, c.created_at, u.username, u.display_name, u.avatar_url FROM comments c JOIN users u ON c.user_id = u.id WHERE c.post_id = ? ORDER BY c.created_at ASC LIMIT ?"
+    "SELECT c.id, c.post_id, c.user_id, c.content, c.created_at, c.parent_id, u.username, u.display_name, u.avatar_url FROM comments c JOIN users u ON c.user_id = u.id WHERE c.post_id = ? ORDER BY c.created_at ASC LIMIT ?"
   )
     .bind(postId, limit)
     .all();
@@ -503,6 +545,7 @@ app.get("/api/posts/:id/comments", async (c) => {
     user_id: r.user_id,
     content: r.content,
     created_at: r.created_at,
+    parent_id: r.parent_id ?? null,
     user: { username: r.username, display_name: r.display_name, avatar_url: r.avatar_url },
   }));
   return c.json({ comments }, 200, corsHeaders());
@@ -512,13 +555,21 @@ app.post("/api/posts/:id/comments", async (c) => {
   const userId = await getUserIdFromRequest(c);
   if (!userId) return c.json({ error: "未登录" }, 401, corsHeaders());
   const postId = c.req.param("id");
-  const body = (await c.req.json()) as { content?: string };
+  const body = (await c.req.json()) as { content?: string; parent_comment_id?: string };
   const content = String(body?.content ?? "").trim();
   if (!content) return c.json({ error: "内容不能为空" }, 400, corsHeaders());
+  const parentId = body?.parent_comment_id ? String(body.parent_comment_id).trim() || null : null;
   const id = uuid();
-  await c.env.molian_db.prepare("INSERT INTO comments (id, post_id, user_id, content) VALUES (?, ?, ?, ?)").bind(id, postId, userId, content).run();
+  if (parentId) {
+    const parentRow = await c.env.molian_db.prepare("SELECT id FROM comments WHERE id = ? AND post_id = ?").bind(parentId, postId).first();
+    if (!parentRow) return c.json({ error: "被回复的评论不存在" }, 400, corsHeaders());
+  }
+  await c.env.molian_db
+    .prepare("INSERT INTO comments (id, post_id, user_id, content, parent_id) VALUES (?, ?, ?, ?, ?)")
+    .bind(id, postId, userId, content, parentId ?? null)
+    .run();
   const row = (await c.env.molian_db.prepare(
-    "SELECT c.id, c.post_id, c.user_id, c.content, c.created_at, u.username, u.display_name, u.avatar_url FROM comments c JOIN users u ON c.user_id = u.id WHERE c.id = ?"
+    "SELECT c.id, c.post_id, c.user_id, c.content, c.created_at, c.parent_id, u.username, u.display_name, u.avatar_url FROM comments c JOIN users u ON c.user_id = u.id WHERE c.id = ?"
   )
     .bind(id)
     .first()) as Record<string, unknown> | null;
@@ -529,9 +580,51 @@ app.post("/api/posts/:id/comments", async (c) => {
         user_id: row.user_id,
         content: row.content,
         created_at: row.created_at,
+        parent_id: row.parent_id ?? null,
         user: { username: row.username, display_name: row.display_name, avatar_url: row.avatar_url },
       }
     : null;
+  return c.json({ comment }, 200, corsHeaders());
+});
+
+app.delete("/api/posts/:postId/comments/:commentId", async (c) => {
+  const userId = await getUserIdFromRequest(c);
+  if (!userId) return c.json({ error: "未登录" }, 401, corsHeaders());
+  const postId = c.req.param("postId");
+  const commentId = c.req.param("commentId");
+  const row = (await c.env.molian_db.prepare("SELECT user_id FROM comments WHERE id = ? AND post_id = ?").bind(commentId, postId).first()) as { user_id: string } | null;
+  if (!row) return c.json({ error: "评论不存在" }, 404, corsHeaders());
+  if (row.user_id !== userId) return c.json({ error: "只能删除自己的评论" }, 403, corsHeaders());
+  await c.env.molian_db.prepare("DELETE FROM comments WHERE id = ?").bind(commentId).run();
+  return c.json({ deleted: true }, 200, corsHeaders());
+});
+
+app.patch("/api/posts/:postId/comments/:commentId", async (c) => {
+  const userId = await getUserIdFromRequest(c);
+  if (!userId) return c.json({ error: "未登录" }, 401, corsHeaders());
+  const postId = c.req.param("postId");
+  const commentId = c.req.param("commentId");
+  const row = (await c.env.molian_db.prepare("SELECT user_id FROM comments WHERE id = ? AND post_id = ?").bind(commentId, postId).first()) as { user_id: string } | null;
+  if (!row) return c.json({ error: "评论不存在" }, 404, corsHeaders());
+  if (row.user_id !== userId) return c.json({ error: "只能编辑自己的评论" }, 403, corsHeaders());
+  const body = (await c.req.json()) as { content?: string };
+  const content = String(body?.content ?? "").trim();
+  if (!content) return c.json({ error: "内容不能为空" }, 400, corsHeaders());
+  await c.env.molian_db.prepare("UPDATE comments SET content = ? WHERE id = ?").bind(content, commentId).run();
+  const updated = (await c.env.molian_db.prepare(
+    "SELECT c.id, c.post_id, c.user_id, c.content, c.created_at, u.username, u.display_name, u.avatar_url FROM comments c JOIN users u ON c.user_id = u.id WHERE c.id = ?"
+  )
+    .bind(commentId)
+    .first()) as Record<string, unknown> | null;
+  if (!updated) return c.json({ error: "更新失败" }, 500, corsHeaders());
+  const comment = {
+    id: updated.id,
+    post_id: updated.post_id,
+    user_id: updated.user_id,
+    content: updated.content,
+    created_at: updated.created_at,
+    user: { username: updated.username, display_name: updated.display_name, avatar_url: updated.avatar_url },
+  };
   return c.json({ comment }, 200, corsHeaders());
 });
 

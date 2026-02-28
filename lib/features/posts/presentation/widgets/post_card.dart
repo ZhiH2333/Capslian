@@ -38,11 +38,18 @@ String _formatRelativeTime(String? isoTime) {
 /// X.com 风格帖子卡片。
 ///
 /// [isDetailView] 为 true 时禁用整卡点击跳转（用于帖子详情页自身）。
+/// [onPostDeleted] 删除成功后回调（如详情页需 context.pop）。
 class PostCard extends ConsumerWidget {
-  const PostCard({super.key, required this.post, this.isDetailView = false});
+  const PostCard({
+    super.key,
+    required this.post,
+    this.isDetailView = false,
+    this.onPostDeleted,
+  });
 
   final PostModel post;
   final bool isDetailView;
+  final VoidCallback? onPostDeleted;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -75,6 +82,7 @@ class PostCard extends ConsumerWidget {
                   authUser: authUser,
                   isOwnPost: isOwnPost,
                   ref: ref,
+                  onPostDeleted: onPostDeleted,
                 ),
                 const SizedBox(height: 4),
                 _PostContent(content: post.content),
@@ -102,7 +110,7 @@ class PostCard extends ConsumerWidget {
         else
           InkWell(
             onTap: () => context.push('/posts/${post.id}', extra: post),
-            onLongPress: () => _showPostActionsSheet(context, ref, post, isOwnPost),
+            onLongPress: () => _showPostActionsSheet(context, ref, post, isOwnPost, onPostDeleted: onPostDeleted),
             child: cardContent,
           ),
         const Divider(height: 1, thickness: 0.5),
@@ -116,15 +124,21 @@ void _showPostActionsSheet(
   BuildContext context,
   WidgetRef ref,
   PostModel post,
-  bool isOwnPost,
-) {
+  bool isOwnPost, {
+  VoidCallback? onPostDeleted,
+}) {
   showModalBottomSheet<void>(
     context: context,
     useRootNavigator: true,
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
     ),
-    builder: (_) => _PostActionsSheet(post: post, isOwnPost: isOwnPost, ref: ref),
+    builder: (_) => _PostActionsSheet(
+      post: post,
+      isOwnPost: isOwnPost,
+      ref: ref,
+      onPostDeleted: onPostDeleted,
+    ),
   );
 }
 
@@ -134,11 +148,13 @@ class _PostActionsSheet extends StatelessWidget {
     required this.post,
     required this.isOwnPost,
     required this.ref,
+    this.onPostDeleted,
   });
 
   final PostModel post;
   final bool isOwnPost;
   final WidgetRef ref;
+  final VoidCallback? onPostDeleted;
 
   @override
   Widget build(BuildContext context) {
@@ -190,7 +206,10 @@ class _PostActionsSheet extends StatelessWidget {
               context,
               icon: Icons.edit_outlined,
               label: '编辑',
-              onTap: () => Navigator.pop(context),
+              onTap: () {
+                Navigator.pop(context);
+                context.push('/posts/${post.id}/edit', extra: post);
+              },
             ),
             _buildTile(
               context,
@@ -260,6 +279,8 @@ class _PostActionsSheet extends StatelessWidget {
       if (context.mounted) {
         ref.invalidate(postsListProvider(const PostsListKey()));
         ref.invalidate(feedsListProvider(const PostsListKey()));
+        ref.invalidate(postDetailProvider(post.id));
+        onPostDeleted?.call();
       }
     } catch (_) {
       if (context.mounted) {
@@ -323,6 +344,7 @@ class _PostHeader extends StatelessWidget {
     required this.authUser,
     required this.isOwnPost,
     required this.ref,
+    this.onPostDeleted,
   });
 
   final String name;
@@ -332,6 +354,7 @@ class _PostHeader extends StatelessWidget {
   final UserModel? authUser;
   final bool isOwnPost;
   final WidgetRef ref;
+  final VoidCallback? onPostDeleted;
 
   @override
   Widget build(BuildContext context) {
@@ -374,7 +397,13 @@ class _PostHeader extends StatelessWidget {
             padding: EdgeInsets.zero,
             iconSize: 18,
             icon: Icon(Icons.more_horiz, color: secondaryColor),
-            onPressed: () => _showPostActionsSheet(context, ref, post, isOwnPost),
+            onPressed: () => _showPostActionsSheet(
+              context,
+              ref,
+              post,
+              isOwnPost,
+              onPostDeleted: onPostDeleted,
+            ),
           ),
         ),
       ],

@@ -67,6 +67,16 @@ class PostsRepository {
     }
   }
 
+  /// 更新帖子，仅发布者有权编辑。
+  Future<PostModel> updatePost(String id, {required String content, List<String>? imageUrls}) async {
+    final data = <String, dynamic>{'content': content};
+    if (imageUrls != null) data['image_urls'] = imageUrls;
+    final response = await _dio.patch<Map<String, dynamic>>('${ApiConstants.posts}/$id', data: data);
+    final responseData = response.data;
+    if (responseData == null || responseData['post'] == null) throw Exception('更新响应异常');
+    return PostModel.fromJson(responseData['post'] as Map<String, dynamic>);
+  }
+
   /// 删除帖子，仅发布者有权删除。
   Future<void> deletePost(String id) async {
     await _dio.delete<Map<String, dynamic>>('${ApiConstants.posts}/$id');

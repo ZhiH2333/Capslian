@@ -27,6 +27,8 @@ migrations_dir = "migrations"
 [[r2_buckets]]
 binding = "ASSETS"
 bucket_name = "molian-assets"
+# 开发与生产使用同一桶（生产模式运行）
+preview_bucket_name = "molian-assets"
 
 [durable_objects]
 bindings = [

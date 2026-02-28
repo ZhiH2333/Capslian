@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../core/constants/layout_constants.dart';
 import '../../../shared/widgets/app_scaffold.dart';
 import '../../../shared/widgets/auto_leading_button.dart';
+import '../../auth/providers/auth_providers.dart';
 import '../../social/providers/social_providers.dart';
 import '../data/models/post_model.dart';
 import '../providers/posts_providers.dart';
@@ -62,6 +64,16 @@ class _PostDetailScreenState extends ConsumerState<PostDetailScreen> {
     }
   }
 
+  String? _replyToCommentId;
+  String? _replyToName;
+
+  void _setReplyTarget(String commentId, String name) {
+    setState(() {
+      _replyToCommentId = commentId;
+      _replyToName = name;
+    });
+  }
+
   Future<void> _sendComment() async {
     final String content = _commentController.text.trim();
     if (content.isEmpty) return;
@@ -70,9 +82,17 @@ class _PostDetailScreenState extends ConsumerState<PostDetailScreen> {
       _commentError = null;
     });
     _commentController.clear();
+    final parentId = _replyToCommentId;
+    _replyToCommentId = null;
+    _replyToName = null;
+    setState(() {});
     try {
       final repo = ref.read(socialRepositoryProvider);
-      final Map<String, dynamic> comment = await repo.addComment(widget.postId, content);
+      final Map<String, dynamic> comment = await repo.addComment(
+        widget.postId,
+        content,
+        parentCommentId: parentId,
+      );
       if (mounted) {
         setState(() {
           _comments.insert(0, comment);
@@ -87,6 +107,15 @@ class _PostDetailScreenState extends ConsumerState<PostDetailScreen> {
         });
       }
     }
+  }
+
+  void _removeComment(String commentId) {
+    setState(() => _comments.removeWhere((c) => c['id'] == commentId));
+  }
+
+  void _replaceComment(String commentId, Map<String, dynamic> updated) {
+    final idx = _comments.indexWhere((c) => c['id'] == commentId);
+    if (idx >= 0) setState(() => _comments[idx] = updated);
   }
 
   @override
@@ -117,22 +146,36 @@ class _PostDetailScreenState extends ConsumerState<PostDetailScreen> {
                 }
                 return _DetailContent(
                   post: displayPost,
+                  postId: widget.postId,
                   comments: _comments,
                   loadingComments: _loadingComments,
                   commentError: _commentError,
                   scrollController: _scrollController,
                   onRefresh: _loadComments,
+                  onPostDeleted: () => context.pop(),
+                  replyToName: _replyToName,
+                  onReplyTarget: _setReplyTarget,
+                  onCommentDeleted: _removeComment,
+                  onCommentUpdated: _replaceComment,
+                  ref: ref,
                 );
               },
               loading: () {
                 if (widget.initialPost != null) {
                   return _DetailContent(
                     post: widget.initialPost!,
+                    postId: widget.postId,
                     comments: _comments,
                     loadingComments: _loadingComments,
                     commentError: _commentError,
                     scrollController: _scrollController,
                     onRefresh: _loadComments,
+                    onPostDeleted: () => context.pop(),
+                    replyToName: _replyToName,
+                    onReplyTarget: _setReplyTarget,
+                    onCommentDeleted: _removeComment,
+                    onCommentUpdated: _replaceComment,
+                    ref: ref,
                   );
                 }
                 return const Center(child: CircularProgressIndicator());
@@ -141,11 +184,18 @@ class _PostDetailScreenState extends ConsumerState<PostDetailScreen> {
                 if (widget.initialPost != null) {
                   return _DetailContent(
                     post: widget.initialPost!,
+                    postId: widget.postId,
                     comments: _comments,
                     loadingComments: _loadingComments,
                     commentError: _commentError,
                     scrollController: _scrollController,
                     onRefresh: _loadComments,
+                    onPostDeleted: () => context.pop(),
+                    replyToName: _replyToName,
+                    onReplyTarget: _setReplyTarget,
+                    onCommentDeleted: _removeComment,
+                    onCommentUpdated: _replaceComment,
+                    ref: ref,
                   );
                 }
                 return Center(
@@ -169,6 +219,7 @@ class _PostDetailScreenState extends ConsumerState<PostDetailScreen> {
             isSending: _sending,
             onSend: _sendComment,
             bottomPadding: bottomPadding,
+            replyToName: _replyToName,
           ),
         ],
       ),
@@ -180,19 +231,33 @@ class _PostDetailScreenState extends ConsumerState<PostDetailScreen> {
 class _DetailContent extends StatelessWidget {
   const _DetailContent({
     required this.post,
+    required this.postId,
     required this.comments,
     required this.loadingComments,
     this.commentError,
     required this.scrollController,
     required this.onRefresh,
+    this.onPostDeleted,
+    this.replyToName,
+    required this.onReplyTarget,
+    required this.onCommentDeleted,
+    required this.onCommentUpdated,
+    required this.ref,
   });
 
   final PostModel post;
+  final String postId;
   final List<Map<String, dynamic>> comments;
   final bool loadingComments;
   final String? commentError;
   final ScrollController scrollController;
   final Future<void> Function() onRefresh;
+  final VoidCallback? onPostDeleted;
+  final String? replyToName;
+  final void Function(String commentId, String name) onReplyTarget;
+  final void Function(String commentId) onCommentDeleted;
+  final void Function(String commentId, Map<String, dynamic> updated) onCommentUpdated;
+  final WidgetRef ref;
 
   @override
   Widget build(BuildContext context) {
@@ -205,7 +270,11 @@ class _DetailContent extends StatelessWidget {
             controller: scrollController,
             slivers: <Widget>[
               SliverToBoxAdapter(
-                child: PostCard(post: post, isDetailView: true),
+                child: PostCard(
+                  post: post,
+                  isDetailView: true,
+                  onPostDeleted: onPostDeleted,
+                ),
               ),
               SliverToBoxAdapter(
                 child: Padding(
@@ -235,7 +304,14 @@ class _DetailContent extends StatelessWidget {
               else
                 SliverList(
                   delegate: SliverChildBuilderDelegate(
-                    (_, int i) => _CommentItem(comment: comments[i]),
+                    (_, int i) => _DetailCommentItem(
+                      comment: comments[i],
+                      postId: postId,
+                      authUserId: ref.watch(authStateProvider).valueOrNull?.id,
+                      onReply: onReplyTarget,
+                      onDeleted: onCommentDeleted,
+                      onUpdated: onCommentUpdated,
+                    ),
                     childCount: comments.length,
                   ),
                 ),
@@ -247,14 +323,26 @@ class _DetailContent extends StatelessWidget {
   }
 }
 
-/// 评论列表项。
-class _CommentItem extends StatelessWidget {
-  const _CommentItem({required this.comment});
+/// 详情页评论项：支持回复、本人可编辑/删除。
+class _DetailCommentItem extends ConsumerWidget {
+  const _DetailCommentItem({
+    required this.comment,
+    required this.postId,
+    this.authUserId,
+    required this.onReply,
+    required this.onDeleted,
+    required this.onUpdated,
+  });
 
   final Map<String, dynamic> comment;
+  final String postId;
+  final String? authUserId;
+  final void Function(String commentId, String name) onReply;
+  final void Function(String commentId) onDeleted;
+  final void Function(String commentId, Map<String, dynamic> updated) onUpdated;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final Map<String, dynamic>? user =
         comment['user'] is Map ? comment['user'] as Map<String, dynamic> : null;
     final String name = user?['display_name'] as String? ??
@@ -264,6 +352,8 @@ class _CommentItem extends StatelessWidget {
         '未知用户';
     final String? avatarUrl = user?['avatar_url'] as String?;
     final String content = comment['content']?.toString() ?? '';
+    final String commentId = comment['id']?.toString() ?? '';
+    final bool isOwn = authUserId != null && comment['user_id']?.toString() == authUserId;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       child: Row(
@@ -275,12 +365,114 @@ class _CommentItem extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
-                Text(
-                  name,
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        fontWeight: FontWeight.bold,
-                        color: Theme.of(context).colorScheme.onSurface,
+                Row(
+                  children: <Widget>[
+                    Text(
+                      name,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            fontWeight: FontWeight.bold,
+                            color: Theme.of(context).colorScheme.onSurface,
+                          ),
+                    ),
+                    const SizedBox(width: 8),
+                    TextButton(
+                      onPressed: () => onReply(commentId, name),
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                       ),
+                      child: Text(
+                        '回复',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ),
+                    if (isOwn)
+                      PopupMenuButton<String>(
+                        icon: const Icon(Icons.more_vert, size: 18),
+                        padding: EdgeInsets.zero,
+                        onSelected: (String value) async {
+                          if (value == 'edit') {
+                            final controller = TextEditingController(text: content);
+                            final result = await showDialog<String>(
+                              context: context,
+                              builder: (BuildContext ctx) => AlertDialog(
+                                title: const Text('编辑评论'),
+                                content: TextField(
+                                  controller: controller,
+                                  maxLines: 3,
+                                  autofocus: true,
+                                  decoration: const InputDecoration(border: OutlineInputBorder()),
+                                ),
+                                actions: <Widget>[
+                                  TextButton(
+                                    onPressed: () => Navigator.pop(ctx),
+                                    child: const Text('取消'),
+                                  ),
+                                  FilledButton(
+                                    onPressed: () => Navigator.pop(ctx, controller.text.trim()),
+                                    child: const Text('保存'),
+                                  ),
+                                ],
+                              ),
+                            );
+                            if (result != null && result.isNotEmpty && context.mounted) {
+                              try {
+                                final repo = ref.read(socialRepositoryProvider);
+                                final updated = await repo.updateComment(postId, commentId, result);
+                                onUpdated(commentId, updated);
+                                if (context.mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已保存')));
+                                }
+                              } catch (_) {
+                                if (context.mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('编辑失败，请重试')));
+                                }
+                              }
+                            }
+                          } else if (value == 'delete') {
+                            final confirmed = await showDialog<bool>(
+                              context: context,
+                              builder: (BuildContext ctx) => AlertDialog(
+                                title: const Text('删除评论'),
+                                content: const Text('确定要删除这条评论吗？'),
+                                actions: <Widget>[
+                                  TextButton(
+                                    onPressed: () => Navigator.pop(ctx, false),
+                                    child: const Text('取消'),
+                                  ),
+                                  FilledButton(
+                                    onPressed: () => Navigator.pop(ctx, true),
+                                    style: FilledButton.styleFrom(
+                                      backgroundColor: Theme.of(ctx).colorScheme.error,
+                                    ),
+                                    child: const Text('删除'),
+                                  ),
+                                ],
+                              ),
+                            );
+                            if (confirmed == true && context.mounted) {
+                              try {
+                                final repo = ref.read(socialRepositoryProvider);
+                                await repo.deleteComment(postId, commentId);
+                                onDeleted(commentId);
+                                if (context.mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已删除')));
+                                }
+                              } catch (_) {
+                                if (context.mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('删除失败，请重试')));
+                                }
+                              }
+                            }
+                          }
+                        },
+                        itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
+                          const PopupMenuItem<String>(value: 'edit', child: Text('编辑')),
+                          const PopupMenuItem<String>(value: 'delete', child: Text('删除')),
+                        ],
+                      ),
+                  ],
                 ),
                 const SizedBox(height: 2),
                 Text(
@@ -341,12 +533,14 @@ class _CommentInputBar extends StatelessWidget {
     required this.isSending,
     required this.onSend,
     required this.bottomPadding,
+    this.replyToName,
   });
 
   final TextEditingController controller;
   final bool isSending;
   final VoidCallback onSend;
   final double bottomPadding;
+  final String? replyToName;
 
   @override
   Widget build(BuildContext context) {
@@ -367,10 +561,10 @@ class _CommentInputBar extends StatelessWidget {
           Expanded(
             child: TextField(
               controller: controller,
-              decoration: const InputDecoration(
-                hintText: '写评论...',
-                border: OutlineInputBorder(),
-                contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: InputDecoration(
+                hintText: replyToName != null ? '回复 @$replyToName' : '写评论...',
+                border: const OutlineInputBorder(),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                 isDense: true,
               ),
               minLines: 1,

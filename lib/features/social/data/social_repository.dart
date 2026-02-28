@@ -31,13 +31,31 @@ class SocialRepository {
     return List<Map<String, dynamic>>.from(data['comments'] as List);
   }
 
-  Future<Map<String, dynamic>> addComment(String postId, String content) async {
+  Future<Map<String, dynamic>> addComment(String postId, String content, {String? parentCommentId}) async {
+    final payload = <String, dynamic>{'content': content};
+    if (parentCommentId != null) payload['parent_comment_id'] = parentCommentId;
     final response = await _dio.post<Map<String, dynamic>>(
       '${ApiConstants.posts}/$postId/comments',
-      data: <String, dynamic>{'content': content},
+      data: payload,
     );
     final data = response.data;
     if (data == null || data['comment'] == null) throw Exception('评论失败');
+    return data['comment'] as Map<String, dynamic>;
+  }
+
+  /// 删除评论，仅评论作者可删。
+  Future<void> deleteComment(String postId, String commentId) async {
+    await _dio.delete<Map<String, dynamic>>('${ApiConstants.posts}/$postId/comments/$commentId');
+  }
+
+  /// 编辑评论，仅评论作者可编辑。
+  Future<Map<String, dynamic>> updateComment(String postId, String commentId, String content) async {
+    final response = await _dio.patch<Map<String, dynamic>>(
+      '${ApiConstants.posts}/$postId/comments/$commentId',
+      data: <String, dynamic>{'content': content},
+    );
+    final data = response.data;
+    if (data == null || data['comment'] == null) throw Exception('编辑失败');
     return data['comment'] as Map<String, dynamic>;
   }
 

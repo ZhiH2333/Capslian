@@ -14,6 +14,7 @@ import '../../../shared/widgets/app_scaffold.dart';
 import '../../../shared/widgets/auto_leading_button.dart';
 import '../../files/data/files_repository.dart';
 import '../../files/providers/files_providers.dart';
+import '../data/models/post_model.dart';
 import '../providers/posts_providers.dart';
 
 /// 上传中单条：非 Web 用 path，Web 用 bytes+filename。
@@ -26,9 +27,11 @@ class _UploadingEntry {
   String? error;
 }
 
-/// 发布帖子：正文 + 可选图片（先压缩再上传再发布）。
+/// 发布帖子：正文 + 可选图片（先压缩再上传再发布）。[initialPost] 非空时为编辑模式。
 class CreatePostScreen extends ConsumerStatefulWidget {
-  const CreatePostScreen({super.key});
+  const CreatePostScreen({super.key, this.initialPost});
+
+  final PostModel? initialPost;
 
   @override
   ConsumerState<CreatePostScreen> createState() => _CreatePostScreenState();
@@ -44,6 +47,31 @@ class _CreatePostScreenState extends ConsumerState<CreatePostScreen> {
   bool _isLoading = false;
   String? _error;
   static const _uuid = Uuid();
+  bool _initialized = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_initialized && widget.initialPost != null) {
+      _initialized = true;
+      final content = widget.initialPost!.content;
+      if (content.isNotEmpty) {
+        final lines = content.split('\n');
+        if (lines.length >= 3) {
+          _titleController.text = lines[0];
+          _descriptionController.text = lines[1];
+          _contentController.text = lines.sublist(2).join('\n');
+        } else if (lines.length == 2) {
+          _titleController.text = lines[0];
+          _contentController.text = lines[1];
+        } else {
+          _contentController.text = content;
+        }
+      }
+      final urls = widget.initialPost!.imageUrls;
+      if (urls != null && urls.isNotEmpty) _imageUrls.addAll(urls);
+    }
+  }
 
   @override
   void dispose() {
@@ -58,14 +86,17 @@ class _CreatePostScreenState extends ConsumerState<CreatePostScreen> {
   Future<void> _pickImage() async {
     if (_totalImageCount >= ImageUploadConstants.maxPostImages) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('最多添加 9 张图片')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('最多添加 9 张图片')));
       }
       return;
     }
     final picker = ImagePicker();
-    final xFile = await picker.pickImage(source: ImageSource.gallery, imageQuality: 85);
+    final xFile = await picker.pickImage(
+      source: ImageSource.gallery,
+      imageQuality: 85,
+    );
     if (xFile == null || !mounted) return;
     setState(() => _error = null);
     final repo = ref.read(postsRepositoryProvider);
@@ -74,7 +105,8 @@ class _CreatePostScreenState extends ConsumerState<CreatePostScreen> {
       try {
         rawBytes = await xFile.readAsBytes();
       } catch (e) {
-        if (mounted) setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+        if (mounted)
+          setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
         return;
       }
       Uint8List compressedBytes;
@@ -86,12 +118,17 @@ class _CreatePostScreenState extends ConsumerState<CreatePostScreen> {
           maxHeight: ImageUploadConstants.postImageMaxDimension,
         );
       } catch (e) {
-        if (mounted) setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+        if (mounted)
+          setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
         return;
       }
       if (!mounted) return;
       final name = xFile.name.isNotEmpty ? xFile.name : 'image.jpg';
-      final entry = _UploadingEntry(id: _uuid.v4(), bytes: compressedBytes, filename: name);
+      final entry = _UploadingEntry(
+        id: _uuid.v4(),
+        bytes: compressedBytes,
+        filename: name,
+      );
       setState(() => _uploadingEntries.add(entry));
       try {
         final url = await repo.uploadImageFromBytes(
@@ -109,7 +146,11 @@ class _CreatePostScreenState extends ConsumerState<CreatePostScreen> {
         if (mounted) {
           setState(() {
             final idx = _uploadingEntries.indexWhere((e) => e.id == entry.id);
-            if (idx >= 0) _uploadingEntries[idx].error = e.toString().replaceFirst('Exception: ', '');
+            if (idx >= 0)
+              _uploadingEntries[idx].error = e.toString().replaceFirst(
+                'Exception: ',
+                '',
+              );
           });
         }
       }
@@ -124,14 +165,18 @@ class _CreatePostScreenState extends ConsumerState<CreatePostScreen> {
         maxHeight: ImageUploadConstants.postImageMaxDimension,
       );
     } catch (e) {
-      if (mounted) setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      if (mounted)
+        setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
       return;
     }
     if (!mounted) return;
     final entry = _UploadingEntry(id: _uuid.v4(), path: compressedPath);
     setState(() => _uploadingEntries.add(entry));
     try {
-      final url = await repo.uploadImage(compressedPath, mimeType: 'image/jpeg');
+      final url = await repo.uploadImage(
+        compressedPath,
+        mimeType: 'image/jpeg',
+      );
       if (!mounted) return;
       setState(() {
         _uploadingEntries.removeWhere((e) => e.id == entry.id);
@@ -143,18 +188,31 @@ class _CreatePostScreenState extends ConsumerState<CreatePostScreen> {
       if (mounted) {
         setState(() {
           final idx = _uploadingEntries.indexWhere((e) => e.id == entry.id);
-          if (idx >= 0) _uploadingEntries[idx].error = e.toString().replaceFirst('Exception: ', '');
+          if (idx >= 0)
+            _uploadingEntries[idx].error = e.toString().replaceFirst(
+              'Exception: ',
+              '',
+            );
         });
       }
     }
   }
 
   /// 将上传后的图片登记到「文件」列表，便于在文件界面查看；失败静默忽略。
-  Future<void> _confirmImageToFiles(String url, {required String name, int size = 0}) async {
+  Future<void> _confirmImageToFiles(
+    String url, {
+    required String name,
+    int size = 0,
+  }) async {
     try {
       final filesRepo = ref.read(filesRepositoryProvider);
       final key = FilesRepository.keyFromAssetUrl(url);
-      await filesRepo.confirmUpload(key: key, name: name, size: size, mimeType: 'image/jpeg');
+      await filesRepo.confirmUpload(
+        key: key,
+        name: name,
+        size: size,
+        mimeType: 'image/jpeg',
+      );
       ref.invalidate(filesListProvider);
     } catch (_) {}
   }
@@ -189,7 +247,9 @@ class _CreatePostScreenState extends ConsumerState<CreatePostScreen> {
       _confirmImageToFiles(url, name: name, size: size);
     } catch (e) {
       if (mounted) {
-        setState(() => entry.error = e.toString().replaceFirst('Exception: ', ''));
+        setState(
+          () => entry.error = e.toString().replaceFirst('Exception: ', ''),
+        );
       }
     }
   }
@@ -206,16 +266,31 @@ class _CreatePostScreenState extends ConsumerState<CreatePostScreen> {
       final body = _contentController.text.trim();
       final content = [title, description, body].join('\n');
       final repo = ref.read(postsRepositoryProvider);
-      await repo.createPost(
-        content: content,
-        imageUrls: _imageUrls.isEmpty ? null : _imageUrls,
-      );
-      ref.invalidate(postsListProvider(const PostsListKey()));
-      ref.invalidate(feedsListProvider(const PostsListKey()));
-      if (!mounted) return;
-      context.go(AppRoutes.home);
+      final postId = widget.initialPost?.id;
+      if (postId != null) {
+        await repo.updatePost(
+          postId,
+          content: content,
+          imageUrls: _imageUrls.isEmpty ? null : _imageUrls,
+        );
+        ref.invalidate(postsListProvider(const PostsListKey()));
+        ref.invalidate(feedsListProvider(const PostsListKey()));
+        ref.invalidate(postDetailProvider(postId));
+        if (!mounted) return;
+        context.pop();
+      } else {
+        await repo.createPost(
+          content: content,
+          imageUrls: _imageUrls.isEmpty ? null : _imageUrls,
+        );
+        ref.invalidate(postsListProvider(const PostsListKey()));
+        ref.invalidate(feedsListProvider(const PostsListKey()));
+        if (!mounted) return;
+        context.go(AppRoutes.home);
+      }
     } catch (e) {
-      if (mounted) setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      if (mounted)
+        setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -227,7 +302,7 @@ class _CreatePostScreenState extends ConsumerState<CreatePostScreen> {
       isNoBackground: false,
       appBar: AppBar(
         leading: const AutoLeadingButton(),
-        title: const Text('发布'),
+        title: Text(widget.initialPost != null ? '编辑' : '发布'),
       ),
       body: Form(
         key: _formKey,
@@ -272,7 +347,8 @@ class _CreatePostScreenState extends ConsumerState<CreatePostScreen> {
                 final title = _titleController.text.trim();
                 final description = _descriptionController.text.trim();
                 final content = (v ?? '').trim();
-                if (title.isEmpty && description.isEmpty && content.isEmpty) return '请至少填写标题、描述或内容之一';
+                if (title.isEmpty && description.isEmpty && content.isEmpty)
+                  return '请至少填写标题、描述或内容之一';
                 return null;
               },
             ),
@@ -293,8 +369,13 @@ class _CreatePostScreenState extends ConsumerState<CreatePostScreen> {
                         top: 0,
                         right: 0,
                         child: IconButton(
-                          icon: const Icon(Icons.close, color: Colors.white, size: 20),
-                          onPressed: () => setState(() => _imageUrls.remove(url)),
+                          icon: const Icon(
+                            Icons.close,
+                            color: Colors.white,
+                            size: 20,
+                          ),
+                          onPressed: () =>
+                              setState(() => _imageUrls.remove(url)),
                         ),
                       ),
                     ],
@@ -316,7 +397,9 @@ class _CreatePostScreenState extends ConsumerState<CreatePostScreen> {
                       children: <Widget>[
                         DecoratedBox(
                           decoration: BoxDecoration(
-                            color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.surfaceContainerHighest,
                             borderRadius: BorderRadius.circular(8),
                           ),
                           child: entry.error != null
@@ -325,25 +408,48 @@ class _CreatePostScreenState extends ConsumerState<CreatePostScreen> {
                                   child: Column(
                                     mainAxisAlignment: MainAxisAlignment.center,
                                     children: <Widget>[
-                                      Text(entry.error!, maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 10, color: Theme.of(context).colorScheme.error)),
+                                      Text(
+                                        entry.error!,
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                          fontSize: 10,
+                                          color: Theme.of(
+                                            context,
+                                          ).colorScheme.error,
+                                        ),
+                                      ),
                                       const SizedBox(height: 4),
                                       Row(
-                                        mainAxisAlignment: MainAxisAlignment.center,
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.center,
                                         children: <Widget>[
                                           IconButton(
-                                            icon: const Icon(Icons.refresh, size: 18),
-                                            onPressed: () => _retryUploading(entry),
+                                            icon: const Icon(
+                                              Icons.refresh,
+                                              size: 18,
+                                            ),
+                                            onPressed: () =>
+                                                _retryUploading(entry),
                                           ),
                                           IconButton(
-                                            icon: const Icon(Icons.close, size: 18),
-                                            onPressed: () => _removeUploading(entry),
+                                            icon: const Icon(
+                                              Icons.close,
+                                              size: 18,
+                                            ),
+                                            onPressed: () =>
+                                                _removeUploading(entry),
                                           ),
                                         ],
                                       ),
                                     ],
                                   ),
                                 )
-                              : const Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                              : const Center(
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                ),
                         ),
                       ],
                     ),
@@ -353,18 +459,31 @@ class _CreatePostScreenState extends ConsumerState<CreatePostScreen> {
               const SizedBox(height: 12),
             ],
             OutlinedButton.icon(
-              onPressed: _isLoading || _totalImageCount >= ImageUploadConstants.maxPostImages ? null : _pickImage,
+              onPressed:
+                  _isLoading ||
+                      _totalImageCount >= ImageUploadConstants.maxPostImages
+                  ? null
+                  : _pickImage,
               icon: const Icon(Icons.add_photo_alternate),
               label: const Text('添加图片'),
             ),
             if (_error != null) ...[
               const SizedBox(height: 12),
-              Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+              Text(
+                _error!,
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
             ],
             const SizedBox(height: 24),
             FilledButton(
               onPressed: _isLoading ? null : _submit,
-              child: _isLoading ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2)) : const Text('发布'),
+              child: _isLoading
+                  ? const SizedBox(
+                      height: 20,
+                      width: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : Text(widget.initialPost != null ? '保存' : '发布'),
             ),
           ],
         ),

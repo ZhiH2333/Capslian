@@ -90,6 +90,14 @@ GoRouter createAppRouter() {
         },
       ),
       GoRoute(
+        path: '/posts/:id/edit',
+        builder: (BuildContext context, GoRouterState state) {
+          final String id = state.pathParameters['id'] ?? '';
+          final PostModel? post = state.extra as PostModel?;
+          return CreatePostScreen(initialPost: post);
+        },
+      ),
+      GoRoute(
         path: '/posts/:id/comments',
         builder: (BuildContext context, GoRouterState state) {
           final String id = state.pathParameters['id'] ?? '';
