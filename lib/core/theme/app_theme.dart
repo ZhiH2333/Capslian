@@ -57,10 +57,12 @@ class AppTheme {
           )
         : AppBarTheme(
             centerTitle: true,
+            elevation: 0,
+            scrolledUnderElevation: 0,
             backgroundColor: colorScheme.surface,
             foregroundColor: colorScheme.onSurface,
             iconTheme: IconThemeData(color: colorScheme.onSurface),
-            surfaceTintColor: colorScheme.surface,
+            surfaceTintColor: Colors.transparent,
           );
 
     final Color cardColor = colorScheme.surfaceContainer

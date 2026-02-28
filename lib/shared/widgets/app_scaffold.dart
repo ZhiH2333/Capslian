@@ -30,10 +30,10 @@ class AppScaffold extends StatelessWidget {
   Widget build(BuildContext context) {
     final wide = isWideScreen ?? resp.isWideScreen(context);
     final useBackground = !isNoBackground && !wide;
-    final appBarHeight = appBar != null ? kToolbarHeight : 0.0;
+    final appBarHeight = appBar != null ? appBar!.preferredSize.height : 0.0;
     final topPadding = MediaQuery.paddingOf(context).top;
     final ColorScheme colorScheme = Theme.of(context).colorScheme;
-    final Color scaffoldBg = useBackground
+    final Color scaffoldBg = (useBackground || appBar != null)
         ? colorScheme.surface
         : Colors.transparent;
     final Widget bodyContent = useBackground
