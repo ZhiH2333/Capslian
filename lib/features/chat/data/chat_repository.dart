@@ -1,7 +1,7 @@
 import 'package:dio/dio.dart';
 
 import '../../../core/constants/api_constants.dart';
-import 'models/sn_chat_message.dart';
+import 'models/chat_message_dto.dart';
 
 /// 将可能为相对路径的图片 URL 转为绝对 URL。
 String toAbsoluteImageUrl(String url) {
@@ -21,9 +21,8 @@ class ChatRepository {
 
   final Dio _dio;
 
-  /// 分页拉取房间消息，按时间正序（旧在前）。
-  /// [offset] 偏移，[take] 条数。
-  Future<List<SnChatMessage>> fetchMessages(
+  /// 分页拉取房间消息，按时间正序（旧在前）返回。
+  Future<List<ChatMessageDto>> fetchMessages(
     String roomId, {
     int offset = 0,
     int take = 50,
@@ -37,9 +36,9 @@ class ChatRepository {
     final raw = data['messages'] as List? ?? data['data'] as List? ?? [];
     final list = raw
         .map((dynamic e) =>
-            SnChatMessage.fromJson(e as Map<String, dynamic>))
+            ChatMessageDto.fromJson(e as Map<String, dynamic>))
         .toList();
-    list.sort((a, b) {
+    list.sort((ChatMessageDto a, ChatMessageDto b) {
       final ta = _parseTime(a.createdAt);
       final tb = _parseTime(b.createdAt);
       return ta.compareTo(tb);
@@ -53,16 +52,18 @@ class ChatRepository {
     return dt?.millisecondsSinceEpoch ?? 0;
   }
 
-  /// 发送文本消息。[nonce] 客户端唯一 id，用于乐观更新与去重。
-  Future<SnChatMessage?> sendText(
+  /// 发送文本消息。[localId] 客户端唯一 id，用于乐观更新与 WebSocket 去重。
+  /// 后端为 nonce 时同时传 nonce 以兼容。
+  Future<ChatMessageDto?> sendText(
     String roomId, {
     required String content,
-    required String nonce,
+    required String localId,
     String? replyId,
   }) async {
     final body = <String, dynamic>{
       'content': content,
-      'nonce': nonce,
+      'nonce': localId,
+      'local_id': localId,
       if (replyId != null && replyId.isNotEmpty) 'reply_id': replyId,
     };
     final res = await _dio.post<Map<String, dynamic>>(
@@ -71,14 +72,14 @@ class ChatRepository {
     );
     final msgJson = res.data?['message'] as Map<String, dynamic>?;
     if (msgJson == null) return null;
-    return SnChatMessage.fromJson(msgJson);
+    return ChatMessageDto.fromJson(msgJson);
   }
 
   /// 发送图片消息：先上传得到 url，再发带 attachments 的消息。
-  Future<SnChatMessage?> sendImage(
+  Future<ChatMessageDto?> sendImage(
     String roomId, {
     required String imagePath,
-    required String nonce,
+    required String localId,
     String? caption,
   }) async {
     final url = await uploadFile(imagePath);
@@ -93,7 +94,8 @@ class ChatRepository {
     ];
     final body = <String, dynamic>{
       'content': caption ?? '',
-      'nonce': nonce,
+      'nonce': localId,
+      'local_id': localId,
       'attachments': attachments,
     };
     final res = await _dio.post<Map<String, dynamic>>(
@@ -102,12 +104,12 @@ class ChatRepository {
     );
     final msgJson = res.data?['message'] as Map<String, dynamic>?;
     if (msgJson == null) return null;
-    return SnChatMessage.fromJson(msgJson);
+    return ChatMessageDto.fromJson(msgJson);
   }
 
   Future<String> uploadFile(String path) async {
     try {
-      final formData = FormData.fromMap({
+      final formData = FormData.fromMap(<String, dynamic>{
         'file': await MultipartFile.fromFile(path, filename: 'image.jpg'),
       });
       final res = await _dio.post<Map<String, dynamic>>(

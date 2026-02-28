@@ -1,19 +1,51 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:image_picker/image_picker.dart';
 import 'package:uuid/uuid.dart';
+
+import 'package:flutter_chat_core/flutter_chat_core.dart';
+import 'package:flutter_chat_ui/flutter_chat_ui.dart';
 
 import '../../../core/constants/layout_constants.dart';
 import '../../auth/providers/auth_providers.dart';
 import '../../direct/providers/chat_providers.dart' as ws_providers;
-import '../data/models/sn_chat_message.dart';
+import '../data/chat_repository.dart';
+import '../data/models/chat_message_dto.dart';
 import '../providers/chat_providers.dart';
-import 'widgets/chat_bubble.dart';
-import 'widgets/chat_input_bar.dart';
-import 'widgets/im_message_list.dart';
 
-/// 单聊/群聊房间页：双向消息列表 + 输入栏；支持发送文本/图片、加载更多、WebSocket 新消息。
+/// 将 [ChatMessageDto] 转为 flutter_chat_core v2 的 [Message]。
+Message dtoToMessage(ChatMessageDto dto, String roomId) {
+  final createdAt = _parseDateTime(dto.createdAt);
+  final metadata = <String, dynamic>{
+    if (dto.localId != null && dto.localId!.isNotEmpty) 'local_id': dto.localId!,
+  };
+  if (dto.attachments.isNotEmpty && dto.attachments.first.isImage) {
+    final att = dto.attachments.first;
+    final source = ChatRepository.imageUrl(att.url);
+    return Message.image(
+      id: dto.id,
+      authorId: dto.senderId,
+      source: source,
+      text: dto.content.isNotEmpty ? dto.content : null,
+      createdAt: createdAt,
+      metadata: metadata.isEmpty ? null : metadata,
+    );
+  }
+  return Message.text(
+    id: dto.id,
+    authorId: dto.senderId,
+    text: dto.content,
+    createdAt: createdAt,
+    metadata: metadata.isEmpty ? null : metadata,
+  );
+}
+
+DateTime? _parseDateTime(String? s) {
+  if (s == null || s.isEmpty) return null;
+  return DateTime.tryParse(s.trim());
+}
+
+/// 单聊/群聊房间页：flutter_chat_ui v2 Chat + 历史升序、乐观更新（localId）、WebSocket 替换/追加。
 class ChatRoomScreen extends ConsumerStatefulWidget {
   const ChatRoomScreen({
     super.key,
@@ -29,120 +61,90 @@ class ChatRoomScreen extends ConsumerStatefulWidget {
 }
 
 class _ChatRoomScreenState extends ConsumerState<ChatRoomScreen> {
-  final ScrollController _scrollController = ScrollController();
-  final TextEditingController _inputController = TextEditingController();
-  bool _loadMoreTriggered = false;
+  late final ChatController _chatController;
+  bool _initialLoadDone = false;
+  String? _loadError;
 
   @override
   void initState() {
     super.initState();
-    _scrollController.addListener(_onScroll);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      ref.read(roomMessagesProvider(widget.roomId).notifier).loadInitial(widget.roomId);
-    });
+    _chatController = InMemoryChatController();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadInitialMessages());
   }
 
   @override
   void dispose() {
-    _scrollController.removeListener(_onScroll);
-    _scrollController.dispose();
-    _inputController.dispose();
+    _chatController.dispose();
     super.dispose();
   }
 
-  void _onScroll() {
-    if (!_scrollController.hasClients) return;
-    final pos = _scrollController.position;
-    if (pos.maxScrollExtent - pos.pixels < 120 && !_loadMoreTriggered) {
-      _loadMoreTriggered = true;
-      ref.read(roomMessagesProvider(widget.roomId).notifier).loadMore(widget.roomId).then((_) {
-        if (mounted) _loadMoreTriggered = false;
-      });
-    }
-  }
-
-  Future<void> _sendText() async {
-    final text = _inputController.text.trim();
-    if (text.isEmpty) return;
-    _inputController.clear();
+  Future<void> _loadInitialMessages() async {
+    if (!mounted) return;
     final repo = ref.read(chatRepositoryProvider);
-    final nonce = const Uuid().v4();
-    final me = ref.read(authStateProvider).valueOrNull?.id ?? '';
-    final notifier = ref.read(roomMessagesProvider(widget.roomId).notifier);
-    final optimistic = SnChatMessage(
-      id: nonce,
-      roomId: widget.roomId,
-      senderId: me,
-      content: text,
-      createdAt: DateTime.now().toIso8601String(),
-      nonce: nonce,
-    );
-    notifier.appendMessage(widget.roomId, optimistic);
     try {
-      final msg = await repo.sendText(widget.roomId, content: text, nonce: nonce);
-      if (msg != null && mounted) {
-        notifier.replaceOrAppendMessage(widget.roomId, msg);
-      }
-    } catch (_) {}
-  }
-
-  Future<void> _sendImages() async {
-    final picker = ImagePicker();
-    final images = await picker.pickMultiImage(imageQuality: 85);
-    if (images.isEmpty || !mounted) return;
-    final repo = ref.read(chatRepositoryProvider);
-    final notifier = ref.read(roomMessagesProvider(widget.roomId).notifier);
-    final me = ref.read(authStateProvider).valueOrNull?.id ?? '';
-    for (final img in images) {
-      final path = img.path;
-      final nonce = const Uuid().v4();
-      final optimistic = SnChatMessage(
-        id: nonce,
-        roomId: widget.roomId,
-        senderId: me,
-        content: '',
-        createdAt: DateTime.now().toIso8601String(),
-        nonce: nonce,
-        attachments: [],
-      );
-      notifier.appendMessage(widget.roomId, optimistic);
-      try {
-        final msg = await repo.sendImage(widget.roomId, imagePath: path, nonce: nonce);
-        if (msg != null && mounted) {
-          notifier.replaceOrAppendMessage(widget.roomId, msg);
-        }
-      } catch (_) {}
-    }
-  }
-
-  Future<void> _onLongPressMessage(SnChatMessage message) async {
-    final meId = ref.read(authStateProvider).valueOrNull?.id ?? '';
-    if (message.senderId != meId || message.isDeleted) return;
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (BuildContext ctx) => AlertDialog(
-        title: const Text('撤回消息'),
-        content: const Text('确定要撤回这条消息吗？'),
-        actions: <Widget>[
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('撤回'),
-          ),
-        ],
-      ),
-    );
-    if (ok != true || !mounted) return;
-    try {
-      await ref.read(chatRepositoryProvider).deleteMessage(widget.roomId, message.id);
+      final list = await repo.fetchMessages(widget.roomId, offset: 0, take: 50);
+      if (!mounted) return;
+      final messages = list
+          .map((ChatMessageDto dto) => dtoToMessage(dto, widget.roomId))
+          .toList();
+      await _chatController.setMessages(messages);
       if (mounted) {
-        ref.read(roomMessagesProvider(widget.roomId).notifier).markDeleted(message.id);
+        setState(() {
+          _initialLoadDone = true;
+          _loadError = null;
+        });
       }
-    } catch (_) {}
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _initialLoadDone = true;
+          _loadError = e.toString().replaceFirst('Exception: ', '');
+        });
+      }
+    }
+  }
+
+  void _onMessageSend(String text) {
+    final trimmed = text.trim();
+    if (trimmed.isEmpty) return;
+    final currentUserId = ref.read(authStateProvider).valueOrNull?.id ?? '';
+    if (currentUserId.isEmpty) return;
+    final localId = const Uuid().v4();
+    final optimistic = Message.text(
+      id: localId,
+      authorId: currentUserId,
+      text: trimmed,
+      createdAt: DateTime.now(),
+      metadata: <String, dynamic>{'local_id': localId},
+    );
+    _chatController.insertMessage(optimistic);
+    ref.read(chatRepositoryProvider).sendText(
+          widget.roomId,
+          content: trimmed,
+          localId: localId,
+        ).then((ChatMessageDto? msg) {
+          if (msg != null && mounted) {
+            _applyWebSocketMessage(msg);
+          }
+        }).catchError((Object _) {});
+  }
+
+  /// 应用 WebSocket 或 API 返回的消息：按 local_id 匹配则 update，否则 insert。
+  void _applyWebSocketMessage(ChatMessageDto dto) {
+    final localId = dto.localId;
+    final newMsg = dtoToMessage(dto, widget.roomId);
+    final list = _chatController.messages;
+    if (localId != null && localId.isNotEmpty) {
+      for (final msg in list) {
+        final meta = msg.metadata;
+        if (meta != null && meta['local_id'] == localId) {
+          _chatController.updateMessage(msg, newMsg);
+          return;
+        }
+      }
+    }
+    if (list.any((Message m) => m.id == dto.id)) return;
+    _chatController.insertMessage(newMsg);
   }
 
   @override
@@ -158,22 +160,77 @@ class _ChatRoomScreenState extends ConsumerState<ChatRoomScreen> {
           if (type == 'messages.new' || type == 'messages.update' || type == 'messages.update.links') {
             final msgJson = payload['message'] as Map<String, dynamic>? ?? payload;
             try {
-              final msg = SnChatMessage.fromJson(msgJson);
-              ref.read(roomMessagesProvider(widget.roomId).notifier).replaceOrAppendMessage(widget.roomId, msg);
+              final dto = ChatMessageDto.fromJson(msgJson);
+              _applyWebSocketMessage(dto);
             } catch (_) {}
           } else if (type == 'messages.delete') {
             final id = (payload['message_id'] as Object?)?.toString() ??
                 (payload['id'] as Object?)?.toString() ?? '';
             if (id.isNotEmpty) {
-              ref.read(roomMessagesProvider(widget.roomId).notifier).markDeleted(id);
+              final list = _chatController.messages;
+              for (final msg in list) {
+                if (msg.id == id) {
+                  _chatController.removeMessage(msg);
+                  break;
+                }
+              }
             }
           }
         });
       },
     );
 
-    final messagesState = ref.watch(roomMessagesProvider(widget.roomId));
-    final me = ref.watch(authStateProvider).valueOrNull?.id ?? '';
+    final currentUserId = ref.watch(authStateProvider).valueOrNull?.id ?? '';
+    if (currentUserId.isEmpty) {
+      return Scaffold(
+        appBar: AppBar(
+          title: Text(widget.roomTitle ?? '聊天'),
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back),
+            onPressed: () => context.pop(),
+          ),
+        ),
+        body: const Center(child: Text('请先登录')),
+      );
+    }
+
+    if (!_initialLoadDone && _loadError == null) {
+      return Scaffold(
+        appBar: AppBar(
+          title: Text(widget.roomTitle ?? '聊天'),
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back),
+            onPressed: () => context.pop(),
+          ),
+        ),
+        body: const Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    if (_loadError != null) {
+      return Scaffold(
+        appBar: AppBar(
+          title: Text(widget.roomTitle ?? '聊天'),
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back),
+            onPressed: () => context.pop(),
+          ),
+        ),
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: <Widget>[
+              Text(_loadError!),
+              const SizedBox(height: LayoutConstants.kSpacingLarge),
+              FilledButton(
+                onPressed: _loadInitialMessages,
+                child: const Text('重试'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
 
     return Scaffold(
       appBar: AppBar(
@@ -183,50 +240,11 @@ class _ChatRoomScreenState extends ConsumerState<ChatRoomScreen> {
           onPressed: () => context.pop(),
         ),
       ),
-      body: Column(
-        children: <Widget>[
-          Expanded(
-            child: messagesState.loading
-                ? const Center(child: CircularProgressIndicator())
-                : messagesState.error != null
-                    ? Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: <Widget>[
-                            Text(messagesState.error!),
-                            const SizedBox(height: LayoutConstants.kSpacingLarge),
-                            FilledButton(
-                              onPressed: () => ref
-                                  .read(roomMessagesProvider(widget.roomId).notifier)
-                                  .loadInitial(widget.roomId),
-                              child: const Text('重试'),
-                            ),
-                          ],
-                        ),
-                      )
-                    : (messagesState.aboveCenter.isEmpty && messagesState.belowCenter.isEmpty)
-                        ? const Center(child: Text('暂无消息'))
-                        : ImMessageList(
-                            scrollController: _scrollController,
-                            aboveCenter: messagesState.aboveCenter,
-                            belowCenter: messagesState.belowCenter,
-                            currentUserId: me,
-                            loadingMore: messagesState.loadingMore,
-                            itemBuilder: (BuildContext context, SnChatMessage message) {
-                              return ChatBubble(
-                                message: message,
-                                isMe: message.senderId == me,
-                                onLongPress: _onLongPressMessage,
-                              );
-                            },
-                          ),
-          ),
-          ChatInputBar(
-            controller: _inputController,
-            onSendText: _sendText,
-            onSendImages: _sendImages,
-          ),
-        ],
+      body: Chat(
+        currentUserId: currentUserId,
+        resolveUser: (UserID id) async => User(id: id, name: id, imageSource: null),
+        chatController: _chatController,
+        onMessageSend: _onMessageSend,
       ),
     );
   }

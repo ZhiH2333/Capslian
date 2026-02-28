@@ -9,7 +9,7 @@ import '../../social/providers/social_providers.dart';
 import '../data/models/chat_room_model.dart';
 import '../providers/chat_providers.dart';
 
-/// 聊天 Tab 页：会话列表 + 好友列表；点击进入自研 ChatRoomScreen。
+/// 聊天 Tab 页：会话列表 + 好友列表；点击进入 ChatRoomScreen（flutter_chat_ui v2）。
 class ChatRoomsListScreen extends ConsumerStatefulWidget {
   const ChatRoomsListScreen({super.key});
 
@@ -56,7 +56,7 @@ class _ChatRoomsListScreenState extends ConsumerState<ChatRoomsListScreen>
         title: const Text('聊天'),
         bottom: TabBar(
           controller: _tabController,
-          tabs: const [
+          tabs: const <Tab>[
             Tab(text: '会话'),
             Tab(text: '好友'),
           ],
@@ -84,7 +84,7 @@ class _ChatRoomsListScreenState extends ConsumerState<ChatRoomsListScreen>
       ),
       body: TabBarView(
         controller: _tabController,
-        children: <Widget>[
+        children: const <Widget>[
           _ConversationsTab(),
           _FriendsTab(),
         ],
@@ -94,6 +94,8 @@ class _ChatRoomsListScreenState extends ConsumerState<ChatRoomsListScreen>
 }
 
 class _ConversationsTab extends ConsumerWidget {
+  const _ConversationsTab();
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final roomsAsync = ref.watch(chatRoomListProvider);
@@ -165,12 +167,14 @@ class _ConversationsTab extends ConsumerWidget {
 }
 
 class _FriendsTab extends ConsumerStatefulWidget {
+  const _FriendsTab();
+
   @override
   ConsumerState<_FriendsTab> createState() => _FriendsTabState();
 }
 
 class _FriendsTabState extends ConsumerState<_FriendsTab> {
-  List<Map<String, dynamic>> _friends = [];
+  List<Map<String, dynamic>> _friends = <Map<String, dynamic>>[];
   bool _loading = true;
   String? _error;
 

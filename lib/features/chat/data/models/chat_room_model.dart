@@ -1,5 +1,3 @@
-import 'sn_chat_message.dart';
-
 /// 聊天房间类型。
 enum ChatRoomType {
   direct,
@@ -14,7 +12,8 @@ class ChatRoomMember {
     required this.userId,
     required this.role,
     this.joinedAt,
-    this.user,
+    this.displayName,
+    this.avatarUrl,
   });
 
   final String id;
@@ -22,17 +21,18 @@ class ChatRoomMember {
   final String userId;
   final String role;
   final String? joinedAt;
-  final SnChatSender? user;
+  final String? displayName;
+  final String? avatarUrl;
 
-  factory ChatRoomMember.fromJson(Map<String, dynamic> json) => ChatRoomMember(
+  factory ChatRoomMember.fromJson(Map<String, dynamic> json) =>
+      ChatRoomMember(
         id: (json['id'] as Object?)?.toString() ?? '',
         roomId: (json['room_id'] as Object?)?.toString() ?? '',
         userId: (json['user_id'] as Object?)?.toString() ?? '',
         role: (json['role'] as Object?)?.toString() ?? 'member',
         joinedAt: json['joined_at'] as String?,
-        user: json['user'] != null
-            ? SnChatSender.fromJson(json['user'] as Map<String, dynamic>)
-            : null,
+        displayName: json['display_name'] as String?,
+        avatarUrl: json['avatar_url'] as String?,
       );
 }
 
@@ -64,8 +64,7 @@ class ChatRoom {
 
   factory ChatRoom.fromJson(Map<String, dynamic> json) {
     final typeStr = (json['type'] as String?) ?? 'direct';
-    final membersRaw = json['members'] as List?;
-    List<ChatRoomMember> membersList = membersRaw
+    List<ChatRoomMember> membersList = (json['members'] as List?)
             ?.map((dynamic e) =>
                 ChatRoomMember.fromJson(e as Map<String, dynamic>))
             .toList() ??
