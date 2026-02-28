@@ -490,6 +490,7 @@ app.patch("/api/posts/:id", async (c) => {
   return c.json({ post }, 200, corsHeaders());
 });
 
+// 删除帖子：级联删除该帖下所有回复（含子回复）、post_likes，以及仅被本帖引用的附件（图片）；被其他帖子引用的图片不删。
 app.delete("/api/posts/:id", async (c) => {
   const userId = await getUserIdFromRequest(c);
   if (!userId) return c.json({ error: "未登录" }, 401, corsHeaders());
@@ -572,9 +573,10 @@ app.delete("/api/posts/:id", async (c) => {
       deleteCommentIds.push(id);
     };
     for (const id of roots) visit(id);
-    // 兜底：处理异常孤儿节点
+    // 兜底：处理异常孤儿节点（parent 不在本帖或数据异常）
     for (const r of commentRows as { id: string }[]) visit(r.id);
-    for (const id of deleteCommentIds) {
+    const uniqueCommentIds = [...new Set(deleteCommentIds)];
+    for (const id of uniqueCommentIds) {
       await c.env.molian_db.prepare("DELETE FROM comments WHERE id = ?").bind(id).run();
     }
 
@@ -630,7 +632,7 @@ app.delete("/api/posts/:id", async (c) => {
     return c.json(
       {
         deleted: true,
-        deleted_comments: deleteCommentIds.length,
+        deleted_comments: uniqueCommentIds.length,
         deleted_assets: deletableKeys.length,
         skipped_assets: postKeys.length - deletableKeys.length,
       },

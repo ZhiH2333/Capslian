@@ -128,6 +128,7 @@ void _showPostActionsSheet(
   bool isOwnPost, {
   VoidCallback? onPostDeleted,
 }) {
+  final BuildContext sheetContext = context;
   showModalBottomSheet<void>(
     context: context,
     useRootNavigator: true,
@@ -138,6 +139,7 @@ void _showPostActionsSheet(
       post: post,
       isOwnPost: isOwnPost,
       ref: ref,
+      sheetContext: sheetContext,
       onPostDeleted: onPostDeleted,
     ),
   );
@@ -149,12 +151,14 @@ class _PostActionsSheet extends StatelessWidget {
     required this.post,
     required this.isOwnPost,
     required this.ref,
+    required this.sheetContext,
     this.onPostDeleted,
   });
 
   final PostModel post;
   final bool isOwnPost;
   final WidgetRef ref;
+  final BuildContext sheetContext;
   final VoidCallback? onPostDeleted;
 
   @override
@@ -221,7 +225,7 @@ class _PostActionsSheet extends StatelessWidget {
               color: Theme.of(context).colorScheme.error,
               onTap: () async {
                 Navigator.pop(context);
-                await _confirmAndDelete(context);
+                await _confirmAndDelete(sheetContext);
               },
             ),
           ],
@@ -284,22 +288,29 @@ class _PostActionsSheet extends StatelessWidget {
         ref.invalidate(feedsListProvider(const PostsListKey()));
         ref.invalidate(postDetailProvider(post.id));
         onPostDeleted?.call();
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+          const SnackBar(content: Text('已删除帖子及相关评论与图片')),
+        );
       }
     } catch (err) {
       String msg = '删除失败，请重试';
       if (err is DioException) {
-        final data = err.response?.data;
+        final DioException e = err;
+        final dynamic data = e.response?.data;
         if (data is Map && data['error'] is String && (data['error'] as String).trim().isNotEmpty) {
           msg = (data['error'] as String).trim();
-        } else if ((err.message ?? '').trim().isNotEmpty) {
-          msg = (err.message ?? '').trim();
+        } else if ((e.message ?? '').trim().isNotEmpty) {
+          msg = (e.message ?? '').trim();
+        }
+        if (e.response?.statusCode != null) {
+          msg = '[$msg] (${e.response!.statusCode})';
         }
       } else {
         final raw = err.toString().replaceFirst('Exception: ', '').trim();
         if (raw.isNotEmpty) msg = raw;
       }
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
           SnackBar(content: Text(msg.isNotEmpty ? msg : '删除失败，请重试')),
         );
       }
