@@ -94,7 +94,7 @@ GoRouter createAppRouter() {
         builder: (BuildContext context, GoRouterState state) {
           final String id = state.pathParameters['id'] ?? '';
           final PostModel? post = state.extra as PostModel?;
-          return CreatePostScreen(initialPost: post);
+          return CreatePostScreen(postId: id, initialPost: post);
         },
       ),
       GoRoute(

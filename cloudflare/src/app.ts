@@ -493,14 +493,154 @@ app.patch("/api/posts/:id", async (c) => {
 app.delete("/api/posts/:id", async (c) => {
   const userId = await getUserIdFromRequest(c);
   if (!userId) return c.json({ error: "未登录" }, 401, corsHeaders());
-  const id = c.req.param("id");
-  const row = (await c.env.molian_db.prepare("SELECT user_id FROM posts WHERE id = ?").bind(id).first()) as { user_id: string } | null;
-  if (!row) return c.json({ error: "帖子不存在" }, 404, corsHeaders());
-  if (row.user_id !== userId) return c.json({ error: "只能删除自己的帖子" }, 403, corsHeaders());
-  await c.env.molian_db.prepare("DELETE FROM post_likes WHERE post_id = ?").bind(id).run();
-  await c.env.molian_db.prepare("DELETE FROM comments WHERE post_id = ?").bind(id).run();
-  await c.env.molian_db.prepare("DELETE FROM posts WHERE id = ?").bind(id).run();
-  return c.json({ deleted: true }, 200, corsHeaders());
+  const postId = c.req.param("id");
+  try {
+    const row = (await c.env.molian_db
+      .prepare("SELECT user_id, image_urls FROM posts WHERE id = ?")
+      .bind(postId)
+      .first()) as { user_id: string; image_urls?: unknown } | null;
+    if (!row) return c.json({ error: "帖子不存在" }, 404, corsHeaders());
+    if (row.user_id !== userId) return c.json({ error: "只能删除自己的帖子" }, 403, corsHeaders());
+
+    const parseImageUrls = (raw: unknown): string[] => {
+      if (Array.isArray(raw)) return raw.map((v) => String(v)).filter((v) => v.trim().isNotEmpty);
+      if (typeof raw === "string") {
+        const s = raw.trim();
+        if (!s) return [];
+        try {
+          const parsed = JSON.parse(s);
+          if (Array.isArray(parsed)) return parsed.map((v) => String(v)).filter((v) => v.trim().isNotEmpty);
+        } catch (_) {
+          // ignore json parse error
+        }
+        return [s];
+      }
+      return [];
+    };
+
+    const extractAssetKey = (url: string): string | null => {
+      const marker = "/api/asset/";
+      const safeDecode = (s: string): string => {
+        try {
+          return decodeURIComponent(s);
+        } catch (_) {
+          return s;
+        }
+      };
+      try {
+        const u = url.startsWith("http://") || url.startsWith("https://")
+          ? new URL(url)
+          : new URL(url, "https://dummy.local");
+        const pathname = u.pathname;
+        const idx = pathname.indexOf(marker);
+        if (idx < 0) return null;
+        return safeDecode(pathname.slice(idx + marker.length));
+      } catch (_) {
+        const idx = url.indexOf(marker);
+        if (idx < 0) return null;
+        return safeDecode(url.slice(idx + marker.length));
+      }
+    };
+
+    await c.env.molian_db.prepare("DELETE FROM post_likes WHERE post_id = ?").bind(postId).run();
+
+    // 删除帖子下全部评论（包含回复树）。
+    const { results: commentRows } = await c.env.molian_db
+      .prepare("SELECT id, parent_id FROM comments WHERE post_id = ?")
+      .bind(postId)
+      .all();
+    const childrenMap = new Map<string, string[]>();
+    const roots: string[] = [];
+    for (const r of commentRows as { id: string; parent_id?: string | null }[]) {
+      const id = r.id;
+      const parentId = r.parent_id ?? null;
+      if (parentId && parentId.trim().length > 0) {
+        const list = childrenMap.get(parentId) ?? [];
+        list.push(id);
+        childrenMap.set(parentId, list);
+      } else {
+        roots.push(id);
+      }
+      if (!childrenMap.has(id)) childrenMap.set(id, []);
+    }
+    const deleteCommentIds: string[] = [];
+    const visited = new Set<string>();
+    const visit = (id: string): void => {
+      if (visited.has(id)) return;
+      visited.add(id);
+      for (const child of childrenMap.get(id) ?? []) visit(child);
+      deleteCommentIds.push(id);
+    };
+    for (const id of roots) visit(id);
+    // 兜底：处理异常孤儿节点
+    for (const r of commentRows as { id: string }[]) visit(r.id);
+    for (const id of deleteCommentIds) {
+      await c.env.molian_db.prepare("DELETE FROM comments WHERE id = ?").bind(id).run();
+    }
+
+    const imageUrls = parseImageUrls(row.image_urls);
+    const postKeys = Array.from(
+      new Set(
+        imageUrls
+          .map((url) => extractAssetKey(url))
+          .filter((v): v is string => !!v && v.trim().isNotEmpty)
+      )
+    );
+
+    // 仅删除未被其它帖子复用的资源，避免误删共享图片。
+    const { results: otherPostRows } = await c.env.molian_db
+      .prepare("SELECT image_urls FROM posts WHERE id != ? AND image_urls IS NOT NULL")
+      .bind(postId)
+      .all();
+    const usedByOthers = new Set<string>();
+    for (const r of otherPostRows as { image_urls?: unknown }[]) {
+      const urls = parseImageUrls(r.image_urls);
+      for (const url of urls) {
+        const key = extractAssetKey(url);
+        if (key) usedByOthers.add(key);
+      }
+    }
+    const deletableKeys = postKeys.filter((k) => !usedByOthers.has(k));
+
+    for (const key of deletableKeys) {
+      try {
+        await c.env.ASSETS.delete(key);
+      } catch (e) {
+        console.error("delete asset error:", key, e);
+      }
+    }
+
+    // 同步清理附件登记记录；老环境若无 files 表则忽略。
+    if (deletableKeys.length > 0) {
+      try {
+        const placeholders = deletableKeys.map(() => "?").join(",");
+        await c.env.molian_db
+          .prepare(`DELETE FROM files WHERE key IN (${placeholders})`)
+          .bind(...deletableKeys)
+          .run();
+      } catch (e) {
+        const msg = e && typeof (e as { message?: string }).message === "string" ? (e as { message: string }).message : String(e);
+        if (!msg.includes("no such table")) {
+          console.error("delete files records error:", e);
+        }
+      }
+    }
+
+    await c.env.molian_db.prepare("DELETE FROM posts WHERE id = ?").bind(postId).run();
+    return c.json(
+      {
+        deleted: true,
+        deleted_comments: deleteCommentIds.length,
+        deleted_assets: deletableKeys.length,
+        skipped_assets: postKeys.length - deletableKeys.length,
+      },
+      200,
+      corsHeaders()
+    );
+  } catch (e) {
+    console.error("delete post error:", e);
+    return c.json({ error: "删除失败" }, 500, corsHeaders());
+  }
 });
 
 app.post("/api/posts/:id/like", async (c) => {
@@ -595,8 +735,22 @@ app.delete("/api/posts/:postId/comments/:commentId", async (c) => {
   const row = (await c.env.molian_db.prepare("SELECT user_id FROM comments WHERE id = ? AND post_id = ?").bind(commentId, postId).first()) as { user_id: string } | null;
   if (!row) return c.json({ error: "评论不存在" }, 404, corsHeaders());
   if (row.user_id !== userId) return c.json({ error: "只能删除自己的评论" }, 403, corsHeaders());
-  await c.env.molian_db.prepare("DELETE FROM comments WHERE id = ?").bind(commentId).run();
-  return c.json({ deleted: true }, 200, corsHeaders());
+
+  // 递归删除该评论及其全部子回复，避免因 parent_id 外键导致删除失败。
+  const queue: string[] = [commentId];
+  const deleteIds: string[] = [];
+  while (queue.length > 0) {
+    const currentId = queue.shift() as string;
+    deleteIds.push(currentId);
+    const { results } = await c.env.molian_db.prepare("SELECT id FROM comments WHERE post_id = ? AND parent_id = ?").bind(postId, currentId).all();
+    for (const child of results as { id: string }[]) {
+      queue.push(child.id);
+    }
+  }
+  for (let i = deleteIds.length - 1; i >= 0; i--) {
+    await c.env.molian_db.prepare("DELETE FROM comments WHERE id = ?").bind(deleteIds[i]).run();
+  }
+  return c.json({ deleted: true, deleted_count: deleteIds.length }, 200, corsHeaders());
 });
 
 app.patch("/api/posts/:postId/comments/:commentId", async (c) => {
@@ -612,7 +766,7 @@ app.patch("/api/posts/:postId/comments/:commentId", async (c) => {
   if (!content) return c.json({ error: "内容不能为空" }, 400, corsHeaders());
   await c.env.molian_db.prepare("UPDATE comments SET content = ? WHERE id = ?").bind(content, commentId).run();
   const updated = (await c.env.molian_db.prepare(
-    "SELECT c.id, c.post_id, c.user_id, c.content, c.created_at, u.username, u.display_name, u.avatar_url FROM comments c JOIN users u ON c.user_id = u.id WHERE c.id = ?"
+    "SELECT c.id, c.post_id, c.user_id, c.content, c.created_at, c.parent_id, u.username, u.display_name, u.avatar_url FROM comments c JOIN users u ON c.user_id = u.id WHERE c.id = ?"
   )
     .bind(commentId)
     .first()) as Record<string, unknown> | null;
@@ -623,6 +777,7 @@ app.patch("/api/posts/:postId/comments/:commentId", async (c) => {
     user_id: updated.user_id,
     content: updated.content,
     created_at: updated.created_at,
+    parent_id: updated.parent_id ?? null,
     user: { username: updated.username, display_name: updated.display_name, avatar_url: updated.avatar_url },
   };
   return c.json({ comment }, 200, corsHeaders());

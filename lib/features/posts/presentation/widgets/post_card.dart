@@ -1,4 +1,5 @@
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -168,8 +169,9 @@ class _PostActionsSheet extends StatelessWidget {
             icon: Icons.chat_bubble_outline,
             label: '回复',
             onTap: () {
+              final router = GoRouter.of(context);
               Navigator.pop(context);
-              context.push('/posts/${post.id}', extra: post);
+              router.push('/posts/${post.id}', extra: post);
             },
           ),
           _buildTile(
@@ -207,8 +209,9 @@ class _PostActionsSheet extends StatelessWidget {
               icon: Icons.edit_outlined,
               label: '编辑',
               onTap: () {
+                final router = GoRouter.of(context);
                 Navigator.pop(context);
-                context.push('/posts/${post.id}/edit', extra: post);
+                router.push('/posts/${post.id}/edit', extra: post);
               },
             ),
             _buildTile(
@@ -282,10 +285,22 @@ class _PostActionsSheet extends StatelessWidget {
         ref.invalidate(postDetailProvider(post.id));
         onPostDeleted?.call();
       }
-    } catch (_) {
+    } catch (err) {
+      String msg = '删除失败，请重试';
+      if (err is DioException) {
+        final data = err.response?.data;
+        if (data is Map && data['error'] is String && (data['error'] as String).trim().isNotEmpty) {
+          msg = (data['error'] as String).trim();
+        } else if ((err.message ?? '').trim().isNotEmpty) {
+          msg = (err.message ?? '').trim();
+        }
+      } else {
+        final raw = err.toString().replaceFirst('Exception: ', '').trim();
+        if (raw.isNotEmpty) msg = raw;
+      }
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('删除失败，请重试')),
+          SnackBar(content: Text(msg.isNotEmpty ? msg : '删除失败，请重试')),
         );
       }
     }

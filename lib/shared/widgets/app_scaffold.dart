@@ -66,9 +66,10 @@ class AppScaffold extends StatelessWidget {
       ),
       floatingActionButton: floatingActionButton,
     );
+    final scopedScaffold = ScaffoldMessenger(child: scaffold);
     if (useBackground) {
-      return AppBackground(isRoot: true, child: scaffold);
+      return AppBackground(isRoot: true, child: scopedScaffold);
     }
-    return scaffold;
+    return scopedScaffold;
   }
 }

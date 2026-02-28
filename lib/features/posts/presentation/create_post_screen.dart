@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
@@ -29,9 +30,10 @@ class _UploadingEntry {
 
 /// 发布帖子：正文 + 可选图片（先压缩再上传再发布）。[initialPost] 非空时为编辑模式。
 class CreatePostScreen extends ConsumerStatefulWidget {
-  const CreatePostScreen({super.key, this.initialPost});
+  const CreatePostScreen({super.key, this.initialPost, this.postId});
 
   final PostModel? initialPost;
+  final String? postId;
 
   @override
   ConsumerState<CreatePostScreen> createState() => _CreatePostScreenState();
@@ -49,27 +51,72 @@ class _CreatePostScreenState extends ConsumerState<CreatePostScreen> {
   static const _uuid = Uuid();
   bool _initialized = false;
 
+  bool get _isEditMode =>
+      widget.initialPost != null ||
+      (widget.postId != null && widget.postId!.isNotEmpty);
+
+  String? get _editingPostId {
+    final id = widget.initialPost?.id ?? widget.postId;
+    if (id == null || id.isEmpty) return null;
+    return id;
+  }
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    if (!_initialized && widget.initialPost != null) {
-      _initialized = true;
-      final content = widget.initialPost!.content;
-      if (content.isNotEmpty) {
-        final lines = content.split('\n');
-        if (lines.length >= 3) {
-          _titleController.text = lines[0];
-          _descriptionController.text = lines[1];
-          _contentController.text = lines.sublist(2).join('\n');
-        } else if (lines.length == 2) {
-          _titleController.text = lines[0];
-          _contentController.text = lines[1];
-        } else {
-          _contentController.text = content;
-        }
+    if (_initialized) return;
+    _initialized = true;
+    if (widget.initialPost != null) {
+      _applyPostToForm(widget.initialPost!);
+      return;
+    }
+    final id = widget.postId;
+    if (id != null && id.isNotEmpty) {
+      unawaited(_loadPostForEdit(id));
+    }
+  }
+
+  void _applyPostToForm(PostModel post) {
+    final content = post.content;
+    if (content.isNotEmpty) {
+      final lines = content.split('\n');
+      if (lines.length >= 3) {
+        _titleController.text = lines[0];
+        _descriptionController.text = lines[1];
+        _contentController.text = lines.sublist(2).join('\n');
+      } else if (lines.length == 2) {
+        _titleController.text = lines[0];
+        _contentController.text = lines[1];
+      } else {
+        _contentController.text = content;
       }
-      final urls = widget.initialPost!.imageUrls;
-      if (urls != null && urls.isNotEmpty) _imageUrls.addAll(urls);
+    }
+    _imageUrls
+      ..clear()
+      ..addAll(post.imageUrls ?? const <String>[]);
+  }
+
+  Future<void> _loadPostForEdit(String postId) async {
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
+    try {
+      final repo = ref.read(postsRepositoryProvider);
+      final post = await repo.getPost(postId);
+      if (!mounted) return;
+      if (post == null) {
+        setState(() => _error = '帖子不存在或已删除');
+        return;
+      }
+      _applyPostToForm(post);
+      setState(() {});
+    } catch (e) {
+      if (mounted) {
+        setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -266,7 +313,7 @@ class _CreatePostScreenState extends ConsumerState<CreatePostScreen> {
       final body = _contentController.text.trim();
       final content = [title, description, body].join('\n');
       final repo = ref.read(postsRepositoryProvider);
-      final postId = widget.initialPost?.id;
+      final postId = _editingPostId;
       if (postId != null) {
         await repo.updatePost(
           postId,
@@ -302,7 +349,7 @@ class _CreatePostScreenState extends ConsumerState<CreatePostScreen> {
       isNoBackground: false,
       appBar: AppBar(
         leading: const AutoLeadingButton(),
-        title: Text(widget.initialPost != null ? '编辑' : '发布'),
+        title: Text(_isEditMode ? '编辑' : '发布'),
       ),
       body: Form(
         key: _formKey,
@@ -483,7 +530,7 @@ class _CreatePostScreenState extends ConsumerState<CreatePostScreen> {
                       width: 20,
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
-                  : Text(widget.initialPost != null ? '保存' : '发布'),
+                  : Text(_isEditMode ? '保存' : '发布'),
             ),
           ],
         ),

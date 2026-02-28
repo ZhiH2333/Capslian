@@ -41,12 +41,16 @@ CREATE TABLE IF NOT EXISTS comments (
   post_id VARCHAR(36) NOT NULL,
   user_id VARCHAR(36) NOT NULL,
   content TEXT NOT NULL,
+  parent_id VARCHAR(36) NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (post_id) REFERENCES posts(id),
   FOREIGN KEY (user_id) REFERENCES users(id)
 );
 
+ALTER TABLE comments ADD COLUMN IF NOT EXISTS parent_id VARCHAR(36) NULL;
+
 CREATE INDEX idx_comments_post_id ON comments(post_id);
+CREATE INDEX idx_comments_parent_id ON comments(parent_id);
 
 CREATE TABLE IF NOT EXISTS follows (
   follower_id VARCHAR(36) NOT NULL,

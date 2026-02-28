@@ -224,6 +224,42 @@ app.get("/posts/:id", async (c) => {
   });
 });
 
+app.patch("/posts/:id", async (c) => {
+  const postId = c.req.param("id");
+  const userId = await getUserIdFromRequest(c.req.header("Authorization"));
+  if (!userId) return jsonResponse(c, { error: "未登录" }, 401);
+  const body = await c.req.json();
+  const content = body?.content !== undefined ? String(body.content).trim() : null;
+  const imageUrls = Array.isArray(body?.image_urls) ? body.image_urls : null;
+  if (content === null && imageUrls === null) return jsonResponse(c, { error: "无有效更新字段" }, 400);
+  if (content !== null && !content) return jsonResponse(c, { error: "内容不能为空" }, 400);
+
+  const db = getDb();
+  const [postRows]: any = await db.execute("SELECT user_id FROM posts WHERE id = ?", [postId]);
+  if (!postRows || postRows.length === 0) return jsonResponse(c, { error: "帖子不存在" }, 404);
+  if (postRows[0].user_id !== userId) return jsonResponse(c, { error: "只能编辑自己的帖子" }, 403);
+
+  const updates: string[] = ["updated_at = NOW()"];
+  const values: any[] = [];
+  if (content !== null) {
+    updates.push("content = ?");
+    values.push(content);
+  }
+  if (imageUrls !== null) {
+    updates.push("image_urls = ?");
+    values.push(JSON.stringify(imageUrls));
+  }
+  values.push(postId);
+  await db.execute(`UPDATE posts SET ${updates.join(", ")} WHERE id = ?`, values);
+
+  const [rows]: any = await db.execute(
+    "SELECT p.id, p.user_id, p.content, p.image_urls, p.created_at, p.updated_at, u.username, u.display_name, u.avatar_url FROM posts p JOIN users u ON p.user_id = u.id WHERE p.id = ?",
+    [postId]
+  );
+  if (!rows || rows.length === 0) return jsonResponse(c, { error: "更新失败" }, 500);
+  return jsonResponse(c, { post: rows[0] });
+});
+
 app.post("/posts/:id/like", async (c) => {
   const postId = c.req.param("id");
   const userId = await getUserIdFromRequest(c.req.header("Authorization"));
@@ -258,10 +294,18 @@ app.get("/posts/:id/comments", async (c) => {
   const limit = Math.min(Number(c.req.query("limit")) || 20, 100);
   const db = getDb();
   const [rows]: any = await db.execute(
-    "SELECT c.id, c.post_id, c.user_id, c.content, c.created_at, u.username, u.display_name, u.avatar_url FROM comments c JOIN users u ON c.user_id = u.id WHERE c.post_id = ? ORDER BY c.created_at ASC LIMIT ?",
+    "SELECT c.id, c.post_id, c.user_id, c.content, c.created_at, c.parent_id, u.username, u.display_name, u.avatar_url FROM comments c JOIN users u ON c.user_id = u.id WHERE c.post_id = ? ORDER BY c.created_at ASC LIMIT ?",
     [postId, limit]
   );
-  const comments = rows.map((r: any) => ({ id: r.id, post_id: r.post_id, user_id: r.user_id, content: r.content, created_at: r.created_at, user: { username: r.username, display_name: r.display_name, avatar_url: r.avatar_url } }));
+  const comments = rows.map((r: any) => ({
+    id: r.id,
+    post_id: r.post_id,
+    user_id: r.user_id,
+    content: r.content,
+    created_at: r.created_at,
+    parent_id: r.parent_id ?? null,
+    user: { username: r.username, display_name: r.display_name, avatar_url: r.avatar_url },
+  }));
   return jsonResponse(c, { comments });
 });
 
@@ -272,14 +316,65 @@ app.post("/posts/:id/comments", async (c) => {
   const body = await c.req.json();
   const content = String(body?.content ?? "").trim();
   if (!content) return jsonResponse(c, { error: "内容不能为空" }, 400);
+  const parentId = body?.parent_comment_id ? String(body.parent_comment_id).trim() || null : null;
   const id = uuidv4();
   const db = getDb();
-  await db.execute("INSERT INTO comments (id, post_id, user_id, content) VALUES (?, ?, ?, ?)", [id, postId, userId, content]);
+  if (parentId) {
+    const [parentRows]: any = await db.execute("SELECT id FROM comments WHERE id = ? AND post_id = ?", [parentId, postId]);
+    if (!parentRows || parentRows.length === 0) return jsonResponse(c, { error: "被回复的评论不存在" }, 400);
+  }
+  await db.execute("INSERT INTO comments (id, post_id, user_id, content, parent_id) VALUES (?, ?, ?, ?, ?)", [id, postId, userId, content, parentId]);
   const [rows]: any = await db.execute(
-    "SELECT c.id, c.post_id, c.user_id, c.content, c.created_at, u.username, u.display_name, u.avatar_url FROM comments c JOIN users u ON c.user_id = u.id WHERE c.id = ?",
+    "SELECT c.id, c.post_id, c.user_id, c.content, c.created_at, c.parent_id, u.username, u.display_name, u.avatar_url FROM comments c JOIN users u ON c.user_id = u.id WHERE c.id = ?",
     [id]
   );
-  return jsonResponse(c, { comment: rows[0] });
+  const r = rows[0];
+  return jsonResponse(c, {
+    comment: {
+      id: r.id,
+      post_id: r.post_id,
+      user_id: r.user_id,
+      content: r.content,
+      created_at: r.created_at,
+      parent_id: r.parent_id ?? null,
+      user: { username: r.username, display_name: r.display_name, avatar_url: r.avatar_url },
+    },
+  });
+});
+
+app.patch("/posts/:postId/comments/:commentId", async (c) => {
+  const postId = c.req.param("postId");
+  const commentId = c.req.param("commentId");
+  const userId = await getUserIdFromRequest(c.req.header("Authorization"));
+  if (!userId) return jsonResponse(c, { error: "未登录" }, 401);
+
+  const db = getDb();
+  const [commentRows]: any = await db.execute("SELECT user_id FROM comments WHERE id = ? AND post_id = ?", [commentId, postId]);
+  if (!commentRows || commentRows.length === 0) return jsonResponse(c, { error: "评论不存在" }, 404);
+  if (commentRows[0].user_id !== userId) return jsonResponse(c, { error: "只能编辑自己的评论" }, 403);
+
+  const body = await c.req.json();
+  const content = String(body?.content ?? "").trim();
+  if (!content) return jsonResponse(c, { error: "内容不能为空" }, 400);
+  await db.execute("UPDATE comments SET content = ? WHERE id = ?", [content, commentId]);
+
+  const [rows]: any = await db.execute(
+    "SELECT c.id, c.post_id, c.user_id, c.content, c.created_at, c.parent_id, u.username, u.display_name, u.avatar_url FROM comments c JOIN users u ON c.user_id = u.id WHERE c.id = ?",
+    [commentId]
+  );
+  if (!rows || rows.length === 0) return jsonResponse(c, { error: "更新失败" }, 500);
+  const r = rows[0];
+  return jsonResponse(c, {
+    comment: {
+      id: r.id,
+      post_id: r.post_id,
+      user_id: r.user_id,
+      content: r.content,
+      created_at: r.created_at,
+      parent_id: r.parent_id ?? null,
+      user: { username: r.username, display_name: r.display_name, avatar_url: r.avatar_url },
+    },
+  });
 });
 
 app.post("/follows", async (c) => {
