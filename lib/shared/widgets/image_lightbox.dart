@@ -1,7 +1,10 @@
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:photo_view/photo_view.dart';
 import 'package:photo_view/photo_view_gallery.dart';
+
+import '../../core/image/save_image_to_gallery.dart';
 
 /// 全屏图片灯箱，支持多图切换、缩放/平移、Hero 动画、下滑关闭。
 class ImageLightbox extends StatefulWidget {
@@ -26,6 +29,7 @@ class _ImageLightboxState extends State<ImageLightbox> {
   double _backgroundOpacity = 1.0;
   double _dragStartY = 0.0;
   double _dragOffsetY = 0.0;
+  bool _saving = false;
 
   @override
   void initState() {
@@ -68,6 +72,21 @@ class _ImageLightboxState extends State<ImageLightbox> {
     }
   }
 
+  Future<void> _saveCurrentImage() async {
+    if (_saving) return;
+    final String url = widget.imageUrls[_currentIndex];
+    setState(() => _saving = true);
+    final bool ok = await saveImageFromUrl(url);
+    if (!mounted) return;
+    setState(() => _saving = false);
+    final String message = ok
+        ? '已保存到相册'
+        : (kIsWeb ? '网页端请长按图片保存' : '保存失败，请检查相册权限');
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), backgroundColor: ok ? null : Colors.red.shade700),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final bool hasMultiple = widget.imageUrls.length > 1;
@@ -88,6 +107,21 @@ class _ImageLightboxState extends State<ImageLightbox> {
               )
             : null,
         centerTitle: true,
+        actions: <Widget>[
+          IconButton(
+            icon: _saving
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  )
+                : const Icon(Icons.download, color: Colors.white),
+            onPressed: _saving ? null : _saveCurrentImage,
+          ),
+        ],
       ),
       body: GestureDetector(
         onVerticalDragStart: _onVerticalDragStart,
