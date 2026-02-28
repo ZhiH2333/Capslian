@@ -21,9 +21,12 @@ class ChatMessageDto {
 
   factory ChatMessageDto.fromJson(Map<String, dynamic> json) {
     final attachmentsRaw = json['attachments'] as List?;
-    final attachments = attachmentsRaw
-            ?.map((dynamic e) =>
-                ChatAttachmentDto.fromJson(e as Map<String, dynamic>))
+    final attachments =
+        attachmentsRaw
+            ?.map(
+              (dynamic e) =>
+                  ChatAttachmentDto.fromJson(e as Map<String, dynamic>),
+            )
             .toList() ??
         [];
     return ChatMessageDto(
@@ -31,23 +34,25 @@ class ChatMessageDto {
       content: (json['content'] as Object?)?.toString() ?? '',
       senderId: (json['sender_id'] as Object?)?.toString() ?? '',
       createdAt: json['created_at'] as String?,
-      localId: (json['local_id'] as Object?)?.toString() ??
+      localId:
+          (json['local_id'] as Object?)?.toString() ??
           (json['nonce'] as Object?)?.toString(),
-      roomId: (json['room_id'] as Object?)?.toString() ??
+      roomId:
+          (json['room_id'] as Object?)?.toString() ??
           (json['chat_room_id'] as Object?)?.toString(),
       attachments: attachments,
     );
   }
 
   Map<String, dynamic> toJson() => <String, dynamic>{
-        'id': id,
-        'content': content,
-        'sender_id': senderId,
-        'created_at': createdAt,
-        'local_id': localId,
-        'room_id': roomId,
-        'attachments': attachments.map((a) => a.toJson()).toList(),
-      };
+    'id': id,
+    'content': content,
+    'sender_id': senderId,
+    'created_at': createdAt,
+    'local_id': localId,
+    'room_id': roomId,
+    'attachments': attachments.map((a) => a.toJson()).toList(),
+  };
 }
 
 class ChatAttachmentDto {
@@ -72,11 +77,11 @@ class ChatAttachmentDto {
       );
 
   Map<String, dynamic> toJson() => <String, dynamic>{
-        'id': id,
-        'name': name,
-        'url': url,
-        'mime_type': mimeType,
-      };
+    'id': id,
+    'name': name,
+    'url': url,
+    'mime_type': mimeType,
+  };
 
   bool get isImage {
     final mime = mimeType ?? '';

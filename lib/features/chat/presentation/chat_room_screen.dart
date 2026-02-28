@@ -1,3 +1,5 @@
+import 'package:dio/dio.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -17,7 +19,8 @@ import '../providers/chat_providers.dart';
 Message dtoToMessage(ChatMessageDto dto, String roomId) {
   final createdAt = _parseDateTime(dto.createdAt);
   final metadata = <String, dynamic>{
-    if (dto.localId != null && dto.localId!.isNotEmpty) 'local_id': dto.localId!,
+    if (dto.localId != null && dto.localId!.isNotEmpty)
+      'local_id': dto.localId!,
   };
   if (dto.attachments.isNotEmpty && dto.attachments.first.isImage) {
     final att = dto.attachments.first;
@@ -47,11 +50,7 @@ DateTime? _parseDateTime(String? s) {
 
 /// 单聊/群聊房间页：flutter_chat_ui v2 Chat + 历史升序、乐观更新（localId）、WebSocket 替换/追加。
 class ChatRoomScreen extends ConsumerStatefulWidget {
-  const ChatRoomScreen({
-    super.key,
-    required this.roomId,
-    this.roomTitle,
-  });
+  const ChatRoomScreen({super.key, required this.roomId, this.roomTitle});
 
   final String roomId;
   final String? roomTitle;
@@ -115,21 +114,18 @@ class _ChatRoomScreenState extends ConsumerState<ChatRoomScreen> {
       authorId: currentUserId,
       text: trimmed,
       createdAt: DateTime.now(),
-      metadata: <String, dynamic>{
-        'local_id': localId,
-        'pending': true,
-      },
+      metadata: <String, dynamic>{'local_id': localId, 'pending': true},
     );
     _chatController.insertMessage(optimistic);
-    ref.read(chatRepositoryProvider).sendText(
-          widget.roomId,
-          content: trimmed,
-          localId: localId,
-        ).then((ChatMessageDto? msg) {
+    ref
+        .read(chatRepositoryProvider)
+        .sendText(widget.roomId, content: trimmed, localId: localId)
+        .then((ChatMessageDto? msg) {
           if (msg != null && mounted) {
             _applyWebSocketMessage(msg);
           }
-        }).catchError((Object _) {});
+        })
+        .catchError((Object _) {});
   }
 
   /// 应用 WebSocket 或 API 返回的消息：先按 local_id/nonce 匹配乐观消息，否则按 sender_id + pending 兜底，再否则 insert。
@@ -173,19 +169,26 @@ class _ChatRoomScreenState extends ConsumerState<ChatRoomScreen> {
       ws_providers.wsRawMessagesProvider,
       (Object? prev, AsyncValue<Map<String, dynamic>> next) {
         next.whenData((Map<String, dynamic> payload) {
-          final roomId = (payload['room_id'] as Object?)?.toString() ??
-              (payload['chat_room_id'] as Object?)?.toString() ?? '';
+          final roomId =
+              (payload['room_id'] as Object?)?.toString() ??
+              (payload['chat_room_id'] as Object?)?.toString() ??
+              '';
           if (roomId != widget.roomId) return;
           final type = payload['type'] as String?;
-          if (type == 'messages.new' || type == 'messages.update' || type == 'messages.update.links') {
-            final msgJson = payload['message'] as Map<String, dynamic>? ?? payload;
+          if (type == 'messages.new' ||
+              type == 'messages.update' ||
+              type == 'messages.update.links') {
+            final msgJson =
+                payload['message'] as Map<String, dynamic>? ?? payload;
             try {
               final dto = ChatMessageDto.fromJson(msgJson);
               _applyWebSocketMessage(dto);
             } catch (_) {}
           } else if (type == 'messages.delete') {
-            final id = (payload['message_id'] as Object?)?.toString() ??
-                (payload['id'] as Object?)?.toString() ?? '';
+            final id =
+                (payload['message_id'] as Object?)?.toString() ??
+                (payload['id'] as Object?)?.toString() ??
+                '';
             if (id.isNotEmpty) {
               final list = _chatController.messages;
               for (final msg in list) {
@@ -252,6 +255,9 @@ class _ChatRoomScreenState extends ConsumerState<ChatRoomScreen> {
       );
     }
 
+    final theme = Theme.of(context);
+    final surfaceColor = theme.colorScheme.surface;
+    final chatTheme = ChatTheme.fromThemeData(theme);
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.roomTitle ?? '聊天'),
@@ -259,12 +265,111 @@ class _ChatRoomScreenState extends ConsumerState<ChatRoomScreen> {
           icon: const Icon(Icons.arrow_back),
           onPressed: () => context.pop(),
         ),
+        actions: <Widget>[
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert),
+            onSelected: (String value) async {
+              if (value == 'clear') {
+                final confirmed = await showDialog<bool>(
+                  context: context,
+                  builder: (BuildContext ctx) => AlertDialog(
+                    title: const Text('清除聊天记录'),
+                    content: const Text(
+                      '仅清除你本地的记录，对方不受影响。再次进入会话将重新加载历史。确定清除？',
+                    ),
+                    actions: <Widget>[
+                      TextButton(
+                        onPressed: () => Navigator.pop(ctx, false),
+                        child: const Text('取消'),
+                      ),
+                      FilledButton(
+                        onPressed: () => Navigator.pop(ctx, true),
+                        child: const Text('清除'),
+                      ),
+                    ],
+                  ),
+                );
+                if (confirmed == true && mounted) {
+                  await _chatController.setMessages(<Message>[]);
+                  if (mounted) {
+                    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+                      const SnackBar(
+                        content: Text('已清除聊天记录（仅自己可见）'),
+                      ),
+                    );
+                  }
+                }
+              }
+            },
+            itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
+              const PopupMenuItem<String>(
+                value: 'clear',
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    Icon(Icons.delete_sweep_outlined, size: 20),
+                    SizedBox(width: 12),
+                    Text('清除聊天记录（仅自己可见）'),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
       body: Chat(
         currentUserId: currentUserId,
-        resolveUser: (UserID id) async => User(id: id, name: id, imageSource: null),
+        resolveUser: (UserID id) async =>
+            User(id: id, name: id, imageSource: null),
         chatController: _chatController,
+        theme: chatTheme,
+        backgroundColor: surfaceColor,
         onMessageSend: _onMessageSend,
+        onMessageLongPress: _onMessageLongPress,
+      ),
+    );
+  }
+
+  void _onMessageLongPress(
+    BuildContext context,
+    Message message, {
+    required int index,
+    required LongPressStartDetails details,
+  }) {
+    final currentUserId = ref.read(authStateProvider).valueOrNull?.id ?? '';
+    if (currentUserId.isEmpty) return;
+    if (message.authorId != currentUserId) return;
+    final created = message.createdAt ?? DateTime(0);
+    final withinFiveMin = DateTime.now().difference(created).inMinutes < 5;
+    if (!withinFiveMin) return;
+    showModalBottomSheet<void>(
+      context: context,
+      builder: (BuildContext sheetContext) => SafeArea(
+        child: ListTile(
+          leading: const Icon(Icons.delete_outline),
+          title: const Text('撤回'),
+          onTap: () async {
+            Navigator.pop(sheetContext);
+            try {
+              await ref.read(chatRepositoryProvider).deleteMessage(
+                    widget.roomId,
+                    message.id,
+                  );
+            } on DioException catch (e) {
+              if (!mounted) return;
+              final status = e.response?.statusCode;
+              final msg = status == 403
+                  ? (e.response?.data is Map &&
+                          (e.response!.data as Map)['error'] is String
+                      ? (e.response!.data as Map)['error'] as String
+                      : '超过 5 分钟无法撤回')
+                  : '撤回失败，请重试';
+              ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+                SnackBar(content: Text(msg)),
+              );
+            }
+          },
+        ),
       ),
     );
   }

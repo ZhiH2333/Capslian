@@ -35,8 +35,7 @@ class ChatRepository {
     if (data == null) return [];
     final raw = data['messages'] as List? ?? data['data'] as List? ?? [];
     final list = raw
-        .map((dynamic e) =>
-            ChatMessageDto.fromJson(e as Map<String, dynamic>))
+        .map((dynamic e) => ChatMessageDto.fromJson(e as Map<String, dynamic>))
         .toList();
     list.sort((ChatMessageDto a, ChatMessageDto b) {
       final ta = _parseTime(a.createdAt);
@@ -116,7 +115,9 @@ class ChatRepository {
         ApiConstants.upload,
         data: formData,
       );
-      final url = (res.data?['url'] as String? ?? res.data?['path'] as String? ?? '').trim();
+      final url =
+          (res.data?['url'] as String? ?? res.data?['path'] as String? ?? '')
+              .trim();
       if (url.isEmpty) return '';
       if (url.startsWith('http://') || url.startsWith('https://')) return url;
       return toAbsoluteImageUrl(url);
