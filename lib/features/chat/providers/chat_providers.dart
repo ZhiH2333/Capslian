@@ -99,7 +99,7 @@ class RoomMessagesNotifier extends FamilyNotifier<RoomMessagesState, String> {
       final list = await repo.fetchMessages(roomId, offset: 0, take: 50);
       state = RoomMessagesState(
         aboveCenter: [],
-        belowCenter: list,
+        belowCenter: list.reversed.toList(),
         loading: false,
       );
     } catch (e) {
@@ -148,8 +148,8 @@ class RoomMessagesNotifier extends FamilyNotifier<RoomMessagesState, String> {
       below[idx] = message;
     } else {
       below.add(message);
-      below.sort((a, b) => _ts(a).compareTo(_ts(b)));
     }
+    below.sort((a, b) => _ts(b).compareTo(_ts(a)));
     state = state.copyWith(belowCenter: below);
   }
 
@@ -170,7 +170,7 @@ class RoomMessagesNotifier extends FamilyNotifier<RoomMessagesState, String> {
       return;
     }
     below.add(message);
-    below.sort((a, b) => _ts(a).compareTo(_ts(b)));
+    below.sort((a, b) => _ts(b).compareTo(_ts(a)));
     state = state.copyWith(belowCenter: below);
   }
 
